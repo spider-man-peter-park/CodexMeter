@@ -28,6 +28,28 @@ Requires macOS 14 or later and an already signed-in Codex Desktop installation. 
 
 Download [CodexMeter-macOS-arm64.zip](https://github.com/spider-man-peter-park/CodexMeter/raw/refs/heads/main/dist/CodexMeter-macOS-arm64.zip) and unzip it, move `CodexMeter.app` into `/Applications`, then open it. It has no Dock icon or main window. This MVP is ad-hoc signed, not Apple notarized; building locally is the most direct option if macOS blocks a downloaded copy. For a downloaded build, use the standard macOS Privacy & Security “Open Anyway” flow only if you trust this repository. The app requests no Accessibility, Screen Recording or network interception permissions.
 
+### Homebrew
+
+Install the Apple Silicon build from this repository's custom tap:
+
+```bash
+brew tap spider-man-peter-park/codexmeter https://github.com/spider-man-peter-park/CodexMeter
+brew install --cask spider-man-peter-park/codexmeter/codexmeter
+open -a CodexMeter
+```
+
+The cask requires macOS 14 or later, installs `CodexMeter.app` into `/Applications`, and checks a SHA-256 against an immutable version-specific download. It uses the standard Homebrew quarantine behavior; the same signing and first-launch considerations above apply. This is a third-party tap, separate from the official Homebrew Cask repository.
+
+```bash
+brew update
+brew upgrade --cask spider-man-peter-park/codexmeter/codexmeter
+brew uninstall --cask spider-man-peter-park/codexmeter/codexmeter
+```
+
+For a complete removal of CodexMeter's own preferences and derived checkpoints, use `brew uninstall --cask --zap spider-man-peter-park/codexmeter/codexmeter`. Codex session and authentication files are never part of the cask's uninstall or zap paths.
+
+When publishing an update, upload and verify the app archive first, then update `Casks/codexmeter.rb` with its version, immutable commit URL and SHA-256. Update the tap with `brew update` to make that version available through `brew upgrade`.
+
 Launch at login is off until enabled in Settings. Install in Applications before enabling it. macOS may require approval in System Settings → General → Login Items. All other settings are grouped in the popover: appearance presets and typography, labels and visible metrics, refresh periods, and general settings. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown keeps ticking at the selected display period.
 
 ## Build and test
