@@ -120,7 +120,7 @@ The executable can print a small local numeric status report, without prompts, r
 build/CodexMeter.app/Contents/MacOS/CodexMeter --diagnose
 ```
 
-It makes one normal quota query. `--show-popover` opens the panel at launch for UI inspection. Do not post diagnostics or screenshots publicly if you wish to keep your usage metrics private.
+It makes one normal quota query. `--show-popover` opens the panel at launch. `--inspect-ui` keeps it open across application-focus changes for extended visual inspection; ordinary launches keep the standard transient behavior. Do not post diagnostics or screenshots publicly if you wish to keep your usage metrics private.
 
 ## Uninstall
 

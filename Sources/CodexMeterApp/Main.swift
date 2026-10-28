@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
-        popover.behavior = .transient
+        popover.behavior = CommandLine.arguments.contains("--inspect-ui") ? .applicationDefined : .transient
         popover.animates = true
         let controller = NSHostingController(rootView: PopoverView(model: model))
         controller.sizingOptions = [.preferredContentSize]
@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         updateStatusItems()
         model.start()
-        if CommandLine.arguments.contains("--show-popover") {
+        if CommandLine.arguments.contains("--show-popover") || CommandLine.arguments.contains("--inspect-ui") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 guard let self, let button = self.firstButton else { return }
                 self.togglePopover(button)

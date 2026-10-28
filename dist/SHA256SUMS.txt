@@ -1,1 +1,1 @@
-e3aaf63f717cdc582194b8fb91e50978be949517abe11d1881949ccccaefa16f  dist/CodexMeter-macOS-arm64.zip
+0c0d66ffae9003af467e7c8a7ab3f382dde4153beabe80b4edb11ddb14486528  dist/CodexMeter-macOS-arm64.zip
