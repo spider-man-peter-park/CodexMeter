@@ -1,1 +1,2 @@
 3306bafab11627ed0b2f6f9a28844440e505e2e3a64cd0182f4c7b073b712c76  dist/CodexMeter-macOS-arm64.zip
+3306bafab11627ed0b2f6f9a28844440e505e2e3a64cd0182f4c7b073b712c76  dist/CodexMeter-0.3.4-macOS-arm64.zip
