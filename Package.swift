@@ -12,7 +12,8 @@ let package = Package(
         .target(name: "CodexMeterCore"),
         .executableTarget(name: "CodexMeterApp", dependencies: ["CodexMeterCore"],
                           resources: [.process("Resources")]),
-        .testTarget(name: "CodexMeterCoreTests", dependencies: ["CodexMeterCore"])
+        .testTarget(name: "CodexMeterCoreTests", dependencies: ["CodexMeterCore"]),
+        .testTarget(name: "CodexMeterAppTests", dependencies: ["CodexMeterApp", "CodexMeterCore"])
     ],
     swiftLanguageModes: [.v5]
 )

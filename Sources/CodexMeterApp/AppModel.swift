@@ -224,13 +224,18 @@ final class AppModel: ObservableObject {
         changed?()
     }
 
+    func refreshLoginStatus() {
+        let status = SMAppService.mainApp.status
+        loginEnabled = status == .enabled
+        loginWarning = status == .requiresApproval
+            ? "Allow CodexMeter in System Settings → General → Login Items." : nil
+    }
+
     func setLogin(_ enabled: Bool) {
         do {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
-            loginEnabled = SMAppService.mainApp.status == .enabled
-            loginWarning = SMAppService.mainApp.status == .requiresApproval
-                ? "Allow CodexMeter in System Settings → General → Login Items." : nil
+            refreshLoginStatus()
         } catch {
             loginEnabled = SMAppService.mainApp.status == .enabled
             loginWarning = "Login item could not be changed. Install CodexMeter in Applications and try again."

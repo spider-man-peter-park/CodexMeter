@@ -46,11 +46,21 @@ brew upgrade --cask spider-man-peter-park/codexmeter/codexmeter
 brew uninstall --cask spider-man-peter-park/codexmeter/codexmeter
 ```
 
+Before uninstalling, turn off Launch at Login in Settings. If the interface is unavailable, run `/Applications/CodexMeter.app/Contents/MacOS/CodexMeter --unregister-login-item` first. Homebrew quits the app during removal. Login-item registration is preserved during upgrades.
+
 For a complete removal of CodexMeter's own preferences and derived checkpoints, use `brew uninstall --cask --zap spider-man-peter-park/codexmeter/codexmeter`. Codex session and authentication files are never part of the cask's uninstall or zap paths.
 
-When publishing an update, upload and verify the app archive first, then update `Casks/codexmeter.rb` with its version, immutable commit URL and SHA-256. Update the tap with `brew update` to make that version available through `brew upgrade`.
+When publishing an update, upload and verify the app archive first, then update `Casks/codexmeter.rb` with its version, immutable commit URL and SHA-256, together with the public `updates.json` version. Update the tap with `brew update` to make that version available through `brew upgrade`.
 
 Launch at login is off until enabled in Settings. Install in Applications before enabling it. macOS may require approval in System Settings → General → Login Items. All other settings are grouped in the popover: appearance presets and typography, labels and visible metrics, refresh periods, and general settings. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown keeps ticking at the selected display period.
+
+Settings are also available in a native, reusable window through **Settings…** or **Command-,** while CodexMeter is active. Right-click a menu bar item for Settings, About, update checks, GitHub, feedback and Quit. Closing Settings leaves the menu bar app running. About uses the bundle's version, build number, icon and copyright; the version is also shown beside the app name in the detail panel.
+
+The Subscription row displays the plan identifier reported by Codex with a readable label, such as Plus or Pro Lite. Explicit identifiers such as `pro5x` and `pro10x` display their multiplier. A generic `pro` or `prolite` response does not include an account-specific allowance multiplier, so the app does not guess one or turn a temporary usage promotion into a subscription label.
+
+### Update checks
+
+Automatically Check for Updates is off by default. When enabled, CodexMeter checks the project's public `updates.json` about every 12 hours, with a manual Check for Updates action available at any time. It only announces newer versions and opens the project page; installation remains manual or through Homebrew. Checks have a timeout, avoid overlapping requests and back off after failures. Disabling the switch cancels an ongoing check and removes the update-check timer.
 
 ## Build and test
 
@@ -90,7 +100,7 @@ Quota reads launch the installed Codex executable's `app-server --help` first, s
 2. `account/read` with `refreshToken: false`
 3. `account/rateLimits/read`
 
-There is no login, reset-credit, turn, thread, tool or coding request. The child process uses the existing signed-in Codex account. CodexMeter never reads or stores authentication files/tokens. Analytics and OpenTelemetry exporters are disabled for this child with in-memory command arguments; Codex configuration and app files are not edited. The app itself has no HTTP client; the Codex subprocess performs its normal account/quota service traffic.
+There is no login, reset-credit, turn, thread, tool or coding request. The child process uses the existing signed-in Codex account. CodexMeter never reads or stores authentication files/tokens. Analytics and OpenTelemetry exporters are disabled for this child with in-memory command arguments; Codex configuration and app files are not edited. The Codex subprocess performs its normal account/quota service traffic. The app's separate update-check client contacts GitHub only when automatic checks are enabled or the user requests a manual check.
 
 The read-only query has a 15-second total timeout, bounded output and cancellation handling. Each query closes pipes, terminates the child and reaps it, escalating to SIGKILL only if it will not exit. Quota reads run once at launch and every 180 seconds by default, or on manual refresh. The quota period can be set to 1, 3, 5, 10 or 15 minutes. Account statistics default to 15 minutes, with 5, 15, 30 and 60 minute choices. Each query type prevents overlapping requests. Local response checks support 1, 2, 5, 10 or 30 seconds; countdown text supports 15, 30 or 60 seconds. Period changes reschedule the timers immediately. Manually edited preferences retain minimum network periods of 60 seconds for quota and 300 seconds for account statistics. Transient failures preserve the last valid quota, its timestamp and a stale marker. Recent local `rate_limits` snapshots are a fallback, always labeled cached and potentially outdated. Expired reset times do not manufacture replenished quota; the countdown says `now` until a fresh reading arrives.
 
@@ -134,7 +144,7 @@ Local timestamps describe persisted events rather than server-side token generat
 
 The default roots are `~/.codex/sessions` and `~/.codex/archived_sessions`. File changes are checked every two seconds by default, with the period configurable in Settings. Directory listings are cached by modification time, cursors are keyed by device/inode so archival renames preserve progress, and only appended bytes are parsed. Startup backfill is newest-file-first and bounded per pass; large histories may take several passes. Partial final JSONL records wait for their newline. Individual unsupported records over 8 MiB invalidate their timing window instead of allocating unbounded memory. Checkpoints preserve only cursors, boundary timestamps, model names, opaque deduplication IDs and token/quota counters. Prompt/response text and incomplete line bodies are never saved or logged. File truncation/replacement resets its parser.
 
-Checkpoints are stored with private file permissions in `~/Library/Application Support/CodexMeter/`. Last valid quota, account statistics and display/refresh preferences use UserDefaults. Nothing is uploaded by the app: no conversations, usage counters or project paths. There is no telemetry, updater, proxy, sync, cloud service or account switcher.
+Checkpoints are stored with private file permissions in `~/Library/Application Support/CodexMeter/`. Last valid quota, account statistics and display/refresh preferences use UserDefaults. Nothing is uploaded by the app: no conversations, usage counters or project paths. Optional update checks download only public version metadata from GitHub, without authentication, cookies or account information; the preference, last check time and last published version are saved locally. There is no telemetry, automatic installer, proxy, sync, cloud service or account switcher.
 
 For custom CODEX_HOME, launch from a shell with the environment variable, or configure the persistent path for Finder launches:
 

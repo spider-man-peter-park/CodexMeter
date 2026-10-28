@@ -27,6 +27,10 @@ for path in sorted((root / 'Sources/CodexMeterApp/Resources').glob('*.png')):
     relative = path.relative_to(root).as_posix()
     files.append(obj(relative, f'isa = PBXFileReference; lastKnownFileType = image.png; path = {q(relative)}; sourceTree = SOURCE_ROOT;'))
     resourceBuilds.append(obj('build:' + relative, f'isa = PBXBuildFile; fileRef = {files[-1]};'))
+for path in sorted((root / 'Resources').glob('*.icns')):
+    relative = path.relative_to(root).as_posix()
+    files.append(obj(relative, f'isa = PBXFileReference; lastKnownFileType = image.icns; path = {q(relative)}; sourceTree = SOURCE_ROOT;'))
+    resourceBuilds.append(obj('build:' + relative, f'isa = PBXBuildFile; fileRef = {files[-1]};'))
 product = obj('product', 'isa = PBXFileReference; explicitFileType = wrapper.application; path = CodexMeter.app; sourceTree = BUILT_PRODUCTS_DIR;')
 package = obj('package', 'isa = XCLocalSwiftPackageReference; relativePath = .;')
 packageProduct = obj('packageProduct', f'isa = XCSwiftPackageProductDependency; package = {package}; productName = CodexMeterCore;')

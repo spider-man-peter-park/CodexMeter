@@ -1,6 +1,7 @@
 import AppKit
 import CodexMeterCore
 import Foundation
+import ServiceManagement
 import SwiftUI
 
 @MainActor
@@ -9,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var anchorMetric: MenuBarMetric?
     private let popover = NSPopover()
     private let model = AppModel()
+    private let updates = AppUpdates()
+    private var settingsController: NSWindowController?
+    private var popoverController: NSHostingController<PopoverView>?
     private var appearanceObservation: NSKeyValueObservation?
     private var outsideMouseMonitor: Any?
     private var pendingPopoverWork: DispatchWorkItem?
@@ -18,10 +22,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
+        installApplicationMenu()
         popover.behavior = .transient
         popover.delegate = self
         popover.animates = true
-        let controller = NSHostingController(rootView: PopoverView(model: model))
+        let controller = NSHostingController(rootView: PopoverView(model: model, updates: updates,
+            onOpenSettings: { [weak self] in self?.showSettings(nil) },
+            onOpenAbout: { [weak self] in self?.showAbout(nil) }))
+        popoverController = controller
         controller.sizingOptions = [.preferredContentSize]
         popover.contentViewController = controller
         model.changed = { [weak self] in self?.updateStatusItems() }
@@ -30,7 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         updateStatusItems()
         model.start()
-        if CommandLine.arguments.contains("--show-popover") || CommandLine.arguments.contains("--inspect-ui") {
+        updates.start()
+        if CommandLine.arguments.contains("--show-settings") {
+            DispatchQueue.main.async { [weak self] in self?.showSettings(nil) }
+        } else if CommandLine.arguments.contains("--show-popover") || CommandLine.arguments.contains("--inspect-ui") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 guard let self, let button = self.firstButton else { return }
                 self.showPopover(button)
@@ -41,6 +52,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         finishPopoverInteraction()
         model.stop()
+        updates.stop()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) { model.refreshLoginStatus() }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, let button = firstButton { showPopover(button) }
+        return true
     }
 
     func applicationDidResignActive(_ notification: Notification) {
@@ -112,6 +133,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc private func togglePopover(_ sender: NSStatusBarButton) {
         model.refresh()
+        if let event = NSApp.currentEvent, event.type == .rightMouseUp {
+            dismissPopover()
+            NSMenu.popUpContextMenu(makeActionMenu(), with: event, for: sender)
+            return
+        }
         let metric = MenuBarMetric.allCases[sender.tag]
         if popover.isShown || popoverRequested {
             if anchorMetric == metric { dismissPopover(); return }
@@ -184,22 +210,115 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popoverRequested = true
         anchorMetric = MenuBarMetric.allCases[button.tag]
         monitorOutsideClicks()
+        let screenHeight = button.window?.screen?.visibleFrame.height ?? 800
+        popoverController?.rootView.panelHeight = min(740, max(180, screenHeight - 60))
         NSApplication.shared.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         updateStatusItems()
     }
+
+    private func installApplicationMenu() {
+        let menu = NSMenu()
+        let application = NSMenuItem(title: AppMetadata.name, action: nil, keyEquivalent: "")
+        application.submenu = makeActionMenu()
+        menu.addItem(application)
+        let file = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        file.submenu = fileMenu
+        menu.addItem(file)
+        let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "Edit")
+        for (title, action, key) in [("Undo", "undo:", "z"), ("Cut", "cut:", "x"),
+                                     ("Copy", "copy:", "c"), ("Paste", "paste:", "v"),
+                                     ("Select All", "selectAll:", "a")] {
+            editMenu.addItem(NSMenuItem(title: title, action: NSSelectorFromString(action), keyEquivalent: key))
+        }
+        edit.submenu = editMenu
+        menu.addItem(edit)
+        NSApp.mainMenu = menu
+    }
+
+    private func makeActionMenu() -> NSMenu {
+        let menu = NSMenu(title: AppMetadata.name)
+        func add(_ title: String, _ selector: Selector, key: String = "") {
+            let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
+            item.target = self
+            menu.addItem(item)
+        }
+        add("About CodexMeter", #selector(showAbout(_:)))
+        menu.addItem(.separator())
+        add("Settings…", #selector(showSettings(_:)), key: ",")
+        add("Check for Updates…", #selector(checkForUpdates(_:)))
+        menu.addItem(.separator())
+        add("CodexMeter on GitHub", #selector(openProject(_:)))
+        add("Report an Issue…", #selector(reportIssue(_:)))
+        menu.addItem(.separator())
+        add("Quit CodexMeter", #selector(quit(_:)), key: "q")
+        return menu
+    }
+
+    @objc private func showSettings(_ sender: Any?) {
+        dismissPopover()
+        model.refreshLoginStatus()
+        if settingsController == nil {
+            let controller = NSHostingController(rootView: SettingsWindowView(model: model, updates: updates))
+            let window = NSWindow(contentViewController: controller)
+            window.title = "CodexMeter Settings"
+            window.styleMask = [.titled, .closable]
+            let height = min(600, max(280, (NSScreen.main?.visibleFrame.height ?? 800) - 100))
+            window.setContentSize(NSSize(width: 470, height: height))
+            window.isReleasedWhenClosed = false
+            window.setFrameAutosaveName("CodexMeter.Settings")
+            if !window.setFrameUsingName("CodexMeter.Settings") { window.center() }
+            settingsController = NSWindowController(window: window)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsController?.showWindow(nil)
+        settingsController?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func showAbout(_ sender: Any?) {
+        dismissPopover()
+        let credits = NSMutableAttributedString(string: "Codex Desktop quota, tokens and response speed.\n\n")
+        for (title, url) in [("GitHub", AppMetadata.projectURL), ("Report an Issue", AppMetadata.issuesURL),
+                             ("MIT License", AppMetadata.licenseURL)] {
+            credits.append(NSAttributedString(string: title + "\n", attributes: [.link: url]))
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: AppMetadata.name,
+            .applicationVersion: AppMetadata.version, .version: AppMetadata.build, .credits: credits])
+    }
+
+    @objc private func checkForUpdates(_ sender: Any?) { showSettings(sender); updates.check(force: true) }
+    @objc private func openProject(_ sender: Any?) { dismissPopover(); NSWorkspace.shared.open(AppMetadata.projectURL) }
+    @objc private func reportIssue(_ sender: Any?) { dismissPopover(); NSWorkspace.shared.open(AppMetadata.issuesURL) }
+    @objc private func quit(_ sender: Any?) { NSApp.terminate(sender) }
 }
 
 @main
 struct CodexMeterMain {
     @MainActor static func main() {
+        if CommandLine.arguments.contains("--unregister-login-item") {
+            do {
+                if SMAppService.mainApp.status != .notRegistered { try SMAppService.mainApp.unregister() }
+                exit(0)
+            }
+            catch { fputs("Remove CodexMeter from Login Items before uninstalling.\n", stderr); exit(1) }
+        }
         if CommandLine.arguments.contains("--diagnose") {
             Task { @MainActor in
                 await diagnose()
                 exit(0)
             }
             dispatchMain()
+        }
+        if let identifier = Bundle.main.bundleIdentifier,
+           let existing = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated }) {
+            existing.activate(options: [])
+            return
         }
         let application = NSApplication.shared
         let delegate = AppDelegate()

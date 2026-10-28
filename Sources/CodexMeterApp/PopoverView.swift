@@ -4,6 +4,10 @@ import SwiftUI
 
 struct PopoverView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var updates: AppUpdates
+    var onOpenSettings: () -> Void = {}
+    var onOpenAbout: () -> Void = {}
+    var panelHeight: CGFloat = 740
 
     var body: some View {
         VStack(spacing: 0) {
@@ -11,6 +15,10 @@ struct PopoverView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    if updates.updateAvailable, let latest = updates.latestVersion {
+                        Link("CodexMeter \(latest.description) is available", destination: AppMetadata.projectURL)
+                            .font(.caption.weight(.medium))
+                    }
                     card { quotaSection }
                     card { speedSection }
                     card { accountSection }
@@ -26,7 +34,7 @@ struct PopoverView: View {
             Divider()
             footer.padding(.horizontal, 18).padding(.vertical, 12)
         }
-        .frame(width: 420, height: maximumHeight)
+        .frame(width: 420, height: panelHeight)
     }
 
     private var header: some View {
@@ -38,7 +46,10 @@ struct PopoverView: View {
                 .background(LinearGradient(colors: [.teal, .blue], startPoint: .topLeading, endPoint: .bottomTrailing),
                             in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
-                Text("CodexMeter").font(.system(size: 15, weight: .semibold, design: .rounded))
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(AppMetadata.name).font(.system(size: 15, weight: .semibold, design: .rounded))
+                    Text(AppMetadata.versionLabel).font(.caption2).foregroundStyle(.secondary)
+                }
                 Text("Limits, tokens & response speed").font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
@@ -57,13 +68,13 @@ struct PopoverView: View {
                 Text(model.quota.map { Self.date($0.updatedAt) } ?? "No quota data yet")
             }.font(.caption2).foregroundStyle(.secondary)
             Spacer()
-            Button("Quit") { NSApplication.shared.terminate(nil) }
+            Button(action: onOpenSettings) { Image(systemName: "gearshape") }
+                .buttonStyle(.borderless).help("Settings… (⌘,)").accessibilityLabel("Settings")
+            Button(action: onOpenAbout) { Image(systemName: "info.circle") }
+                .buttonStyle(.borderless).help("About CodexMeter").accessibilityLabel("About CodexMeter")
+            Button("Quit CodexMeter") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless).font(.caption)
         }
-    }
-
-    private var maximumHeight: CGFloat {
-        min(740, max(350, (NSScreen.main?.visibleFrame.height ?? 840) - 100))
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -77,6 +88,12 @@ struct PopoverView: View {
     private var quotaSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             sectionTitle("Plan limits", symbol: "chart.bar.fill")
+            HStack(alignment: .firstTextBaseline) {
+                Text("Subscription").foregroundStyle(.secondary)
+                Spacer()
+                Text(SubscriptionPlanLabel.title(for: model.accountInfo?.planType))
+                    .fontWeight(.semibold).multilineTextAlignment(.trailing)
+            }.font(.caption)
             if model.quota == nil || model.quota?.fiveHour != nil {
                 quotaRow("5-hour limit", symbol: "clock", window: model.quota?.fiveHour)
                 Divider()
@@ -156,7 +173,6 @@ struct PopoverView: View {
             HStack {
                 sectionTitle("Account usage", symbol: "number.circle.fill")
                 Spacer()
-                if let plan = model.accountInfo?.planType { Text(plan).font(.caption).foregroundStyle(.secondary) }
             }
             HStack {
                 metric("Lifetime tokens", value: TokenCountFormatter.compact(model.accountInfo?.summary?.lifetimeTokens))
@@ -234,144 +250,7 @@ struct PopoverView: View {
 
     private var settingsSection: some View {
         DisclosureGroup("Settings", isExpanded: $model.settingsExpanded) {
-            VStack(alignment: .leading, spacing: 15) {
-                appearanceSettings
-                Divider()
-                layoutSettings
-                Divider()
-                refreshSettings
-                Divider()
-                generalSettings
-            }
-            .toggleStyle(.switch).controlSize(.small).padding(.top, 14)
-        }
-    }
-
-    private var appearanceSettings: some View {
-        DisclosureGroup("Menu bar appearance") {
-            VStack(alignment: .leading, spacing: 11) {
-                HStack(spacing: 6) {
-                    ForEach(DisplayPreset.allCases, id: \.self) { preset in
-                        Button(preset.rawValue.capitalized) { model.options.applyPreset(preset) }
-                            .buttonStyle(.bordered).frame(maxWidth: .infinity)
-                    }
-                }.help("Apply a style preset. Your visible metrics and refresh periods stay unchanged.")
-                HStack {
-                    Text("Font size")
-                    Spacer()
-                    Text(String(format: "%.0f pt", model.options.normalizedFontSize)).monospacedDigit()
-                    Stepper("Font size", value: $model.options.fontSize, in: 9...16, step: 1).labelsHidden()
-                }
-                Picker("Weight", selection: $model.options.fontWeight) {
-                    Text("Regular").tag(MenuBarFontWeight.regular)
-                    Text("Medium").tag(MenuBarFontWeight.medium)
-                    Text("Semibold").tag(MenuBarFontWeight.semibold)
-                }.pickerStyle(.segmented)
-                Picker("Typeface", selection: $model.options.fontDesign) {
-                    Text("System").tag(MenuBarFontDesign.system)
-                    Text("Rounded").tag(MenuBarFontDesign.rounded)
-                    Text("Mono").tag(MenuBarFontDesign.monospaced)
-                }.pickerStyle(.segmented)
-                Picker("Color", selection: $model.options.colorStyle) {
-                    ForEach(MenuBarColorStyle.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
-                }
-                Picker("Background", selection: $model.options.itemStyle) {
-                    Text("On open").tag(MenuBarItemStyle.activeCapsule)
-                    Text("Always").tag(MenuBarItemStyle.capsule)
-                    Text("None").tag(MenuBarItemStyle.plain)
-                }.pickerStyle(.segmented)
-                Picker("Spacing", selection: $model.options.spacing) {
-                    Text("Compact").tag(MenuBarSpacing.compact)
-                    Text("Comfortable").tag(MenuBarSpacing.comfortable)
-                }.pickerStyle(.segmented)
-            }.font(.caption).padding(.top, 10)
-        }
-    }
-
-    private var layoutSettings: some View {
-        DisclosureGroup("Labels & visible metrics") {
-            VStack(alignment: .leading, spacing: 11) {
-                Picker("Quota labels", selection: $model.options.quotaLabelStyle) {
-                    Text("AI").tag(QuotaLabelStyle.ai)
-                    Text("5h / 7d").tag(QuotaLabelStyle.window)
-                    Text("Window icons").tag(QuotaLabelStyle.icon)
-                    Text("GPT icon").tag(QuotaLabelStyle.gpt)
-                    Text("Custom").tag(QuotaLabelStyle.custom)
-                    Text("None").tag(QuotaLabelStyle.none)
-                }
-                if model.options.quotaLabelStyle == .custom {
-                    TextField("Custom label · up to 12 characters", text: Binding(
-                        get: { model.options.customQuotaLabel },
-                        set: { model.options.customQuotaLabel = DisplayOptions.sanitizeQuotaLabel($0) }))
-                        .textFieldStyle(.roundedBorder)
-                }
-                Toggle("Show 5-hour quota", isOn: $model.options.showFiveHour)
-                Toggle("Show 7-day quota", isOn: $model.options.showWeekly)
-                Toggle("Show percent sign", isOn: $model.options.showPercentSign)
-                Toggle("Show reset countdown", isOn: $model.options.showCountdown)
-                Picker("Countdown", selection: $model.options.countdownStyle) {
-                    Text("2h14m").tag(CountdownStyle.compact)
-                    Text("02:14").tag(CountdownStyle.clock)
-                }.pickerStyle(.segmented)
-                Picker("Countdown separator", selection: $model.options.countdownSeparator) {
-                    Text("Space").tag(CountdownSeparator.space)
-                    Text("Middle dot").tag(CountdownSeparator.dot)
-                    Text("Slash").tag(CountdownSeparator.slash)
-                    Text("Parentheses").tag(CountdownSeparator.parentheses)
-                }
-                Toggle("Show TPS", isOn: $model.options.showTPS)
-                Picker("TPS layout", selection: $model.options.tpsLayout) {
-                    Text("Inline").tag(MenuBarTPSLayout.inline)
-                    Text("Stacked").tag(MenuBarTPSLayout.stacked)
-                }.pickerStyle(.segmented)
-                Picker("TPS decimals", selection: $model.options.tpsDecimals) {
-                    Text("0").tag(0)
-                    Text("1").tag(1)
-                }.pickerStyle(.segmented)
-                Toggle("Show TPS label", isOn: $model.options.showTPSLabel)
-            }.font(.caption).padding(.top, 10)
-        }
-    }
-
-    private var refreshSettings: some View {
-        DisclosureGroup("Refresh periods") {
-            VStack(alignment: .leading, spacing: 11) {
-                Toggle("Automatic refresh", isOn: $model.autoRefresh)
-                Picker("Quota", selection: $model.refreshOptions.quotaSeconds) {
-                    Text("1 minute").tag(60)
-                    Text("3 minutes").tag(180)
-                    Text("5 minutes").tag(300)
-                    Text("10 minutes").tag(600)
-                    Text("15 minutes").tag(900)
-                }
-                Picker("Local response logs", selection: $model.refreshOptions.logSeconds) {
-                    ForEach([1.0, 2, 5, 10, 30], id: \.self) { Text(String(format: "%.0f seconds", $0)).tag($0) }
-                }
-                Picker("Countdown display", selection: $model.refreshOptions.displaySeconds) {
-                    Text("15 seconds").tag(15)
-                    Text("30 seconds").tag(30)
-                    Text("1 minute").tag(60)
-                }
-                Picker("Account statistics", selection: $model.refreshOptions.accountSeconds) {
-                    Text("5 minutes").tag(300)
-                    Text("15 minutes").tag(900)
-                    Text("30 minutes").tag(1800)
-                    Text("1 hour").tag(3600)
-                }
-                Text("Response logs stay on this Mac. Account and quota reads use Codex App Server.")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }.font(.caption).padding(.top, 10)
-        }
-    }
-
-    private var generalSettings: some View {
-        DisclosureGroup("General") {
-            VStack(alignment: .leading, spacing: 11) {
-                Toggle("Launch at login", isOn: Binding(get: { model.loginEnabled }, set: model.setLogin))
-                if let warning = model.loginWarning {
-                    Text(warning).font(.caption).foregroundStyle(.secondary)
-                }
-            }.font(.caption).padding(.top, 10)
+            SettingsContent(model: model, updates: updates).padding(.top, 14)
         }
     }
 
