@@ -46,12 +46,23 @@ final class AppModel: ObservableObject {
         let homeHash = home.standardizedFileURL.path.utf8.reduce(UInt64(14695981039346656037)) { ($0 ^ UInt64($1)) &* 1099511628211 }
         quotaCacheKey = "lastValidQuota." + String(homeHash, radix: 16)
         defaults.register(defaults: ["showFiveHour": true, "showWeekly": true, "showCountdown": true,
-                                     "showTPS": true, "fullMode": false, "autoRefresh": true])
+                                     "showTPS": true, "fullMode": false, "autoRefresh": true,
+                                     "quotaLabelStyle": "ai", "countdownStyle": "compact",
+                                     "tpsDecimals": 0, "showTPSLabel": true])
+        if defaults.integer(forKey: "displaySchemaVersion") < 2 {
+            defaults.set("ai", forKey: "quotaLabelStyle")
+            defaults.set(true, forKey: "showCountdown")
+            defaults.set(2, forKey: "displaySchemaVersion")
+        }
         options = DisplayOptions(fullMode: defaults.bool(forKey: "fullMode"),
                                  showFiveHour: defaults.bool(forKey: "showFiveHour"),
                                  showWeekly: defaults.bool(forKey: "showWeekly"),
                                  showCountdown: defaults.bool(forKey: "showCountdown"),
-                                 showTPS: defaults.bool(forKey: "showTPS"))
+                                 showTPS: defaults.bool(forKey: "showTPS"),
+                                 quotaLabelStyle: QuotaLabelStyle(rawValue: defaults.string(forKey: "quotaLabelStyle") ?? "") ?? .ai,
+                                 countdownStyle: CountdownStyle(rawValue: defaults.string(forKey: "countdownStyle") ?? "") ?? .compact,
+                                 tpsDecimals: defaults.integer(forKey: "tpsDecimals"),
+                                 showTPSLabel: defaults.bool(forKey: "showTPSLabel"))
         autoRefresh = defaults.bool(forKey: "autoRefresh")
         monitor = LogMonitor(home: home)
         if let bytes = defaults.data(forKey: quotaCacheKey),
@@ -156,5 +167,9 @@ final class AppModel: ObservableObject {
         defaults.set(options.showWeekly, forKey: "showWeekly")
         defaults.set(options.showCountdown, forKey: "showCountdown")
         defaults.set(options.showTPS, forKey: "showTPS")
+        defaults.set(options.quotaLabelStyle.rawValue, forKey: "quotaLabelStyle")
+        defaults.set(options.countdownStyle.rawValue, forKey: "countdownStyle")
+        defaults.set(options.tpsDecimals, forKey: "tpsDecimals")
+        defaults.set(options.showTPSLabel, forKey: "showTPSLabel")
     }
 }

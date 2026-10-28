@@ -37,7 +37,7 @@ struct AppServerTests {
                 assert request['params']['refreshToken'] is False
                 result = {'account': {'type': 'chatgpt'}}
             elif request['method'] == 'account/rateLimits/read':
-                result = {'rateLimits': {'primary': {'usedPercent': 18, 'windowDurationMins': 300, 'resetsAt': 12345}}}
+                result = {'rateLimits': {'primary': {'usedPercent': 18, 'windowDurationMins': 300, 'resetsAt': 12345}}, 'rateLimitResetCredits': {'availableCount': 1, 'credits': [{'id': 'test-card', 'resetType': 'codexRateLimits', 'status': 'available', 'grantedAt': 100, 'expiresAt': 200, 'title': 'Full reset', 'description': 'Fixture card'}]}}
             else:
                 raise RuntimeError('Unexpected method')
             print(json.dumps({'id': request['id'], 'result': result}), flush=True)
@@ -46,6 +46,8 @@ struct AppServerTests {
         let quota = try await AppServerClient(executable: executable, timeout: 5).readQuota(codexHome: directory)
         #expect(quota.fiveHour?.remainingPercent == 82)
         #expect(quota.source == .appServer)
+        #expect(quota.resetCredits?.availableCount == 1)
+        #expect(quota.resetCredits?.credits?.first?.title == "Full reset")
         let data = try Data(contentsOf: directory.appendingPathComponent("methods.json"))
         let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(record["methods"] as? [String] == ["initialize", "initialized", "account/read", "account/rateLimits/read"])

@@ -13,51 +13,128 @@ import Testing
                       updatedAt: now, source: source)
     }
 
-    @Test func testNoDataUsesDashesInsteadOfZero() {
-        #expect(MenuBarFormatter.title(quota: nil, sample: nil, options: DisplayOptions(), now: now) == "5h — | 7d — | — TPS")
+    private var sample: TPSSample {
+        TPSSample(id: "response", model: "test-model", outputTokens: 734,
+                  reasoningTokens: 300, elapsedSeconds: 10, completedAt: now)
     }
 
-    @Test func testCompactModeOmitsCountdown() {
-        #expect(MenuBarFormatter.title(quota: quota(), sample: nil, options: DisplayOptions(), now: now) == "5h 82% | 7d 61% | — TPS")
+    @Test func eachMetricHasSeparateIdentityAndNoCombinedText() {
+        let items = MenuBarFormatter.items(quota: quota(), sample: sample, options: DisplayOptions(), now: now)
+        #expect(items.map(\.metric) == [.fiveHour, .weekly, .tps])
+        #expect(Set(items.map(\.id)).count == 3)
+        #expect(items.map(\.title) == ["AI 82% 2h14m", "AI 61% 4d8h", "73 TPS"])
+        #expect(items.allSatisfy { !$0.title.contains("|") })
+        #expect(items[0].accessibilityLabel.contains("5-hour"))
+        #expect(items[1].accessibilityLabel.contains("7-day"))
     }
 
-    @Test func testFullModeShowsLocalCountdowns() {
-        #expect(MenuBarFormatter.title(quota: quota(), sample: nil,
-                                              options: DisplayOptions(fullMode: true), now: now) == "5h 82% 2h14m | 7d 61% 4d8h | — TPS")
+    @Test func noDataUsesDashesInsteadOfZero() {
+        let items = MenuBarFormatter.items(quota: nil, sample: nil, options: DisplayOptions(), now: now)
+        #expect(items.map(\.title) == ["AI —", "AI —", "— TPS"])
+        #expect(items.allSatisfy { !$0.title.contains("0%") })
     }
 
-    @Test func testWindowVisibilityAndCountdownAreIndependent() {
-        let options = DisplayOptions(fullMode: true, showFiveHour: false, showCountdown: false, showTPS: false)
-        #expect(MenuBarFormatter.title(quota: quota(), sample: nil, options: options, now: now) == "7d 61%")
+    @Test func windowLabelsRemainAnIndependentChoice() {
+        let options = DisplayOptions(quotaLabelStyle: .window)
+        let items = MenuBarFormatter.items(quota: quota(), sample: nil, options: options, now: now)
+        #expect(items.map(\.title) == ["5h 82% 2h14m", "7d 61% 4d8h", "— TPS"])
     }
 
-    @Test func testMissingWindowIsNAOnlyAfterValidSnapshot() {
+    @Test func labelsCanBeHiddenWithoutChangingMetricIdentity() {
+        let items = MenuBarFormatter.items(quota: quota(), sample: nil,
+                                           options: DisplayOptions(quotaLabelStyle: .none), now: now)
+        #expect(items[0].title == "82% 2h14m")
+        #expect(items[0].metric == .fiveHour)
+        #expect(items[1].title == "61% 4d8h")
+        #expect(items[1].accessibilityLabel.contains("7-day quota"))
+    }
+
+    @Test func countdownVisibilityDoesNotDependOnLegacyFullMode() {
+        let visible = MenuBarFormatter.items(quota: quota(), sample: nil,
+                                             options: DisplayOptions(fullMode: false, showTPS: false), now: now)
+        #expect(visible.map(\.title) == ["AI 82% 2h14m", "AI 61% 4d8h"])
+        let hidden = MenuBarFormatter.items(quota: quota(), sample: nil,
+                                            options: DisplayOptions(fullMode: true, showCountdown: false, showTPS: false), now: now)
+        #expect(hidden.map(\.title) == ["AI 82%", "AI 61%"])
+    }
+
+    @Test func clockCountdownStyleFormatsHoursMinutesAndDays() {
+        let items = MenuBarFormatter.items(quota: quota(), sample: nil,
+                                           options: DisplayOptions(countdownStyle: .clock), now: now)
+        #expect(items[0].title == "AI 82% 02:14")
+        #expect(items[1].title == "AI 61% 4d08:00")
+        #expect(MenuBarFormatter.countdown(until: now.addingTimeInterval(314 * 60), now: now, style: .clock) == "05:14")
+    }
+
+    @Test func metricVisibilityDoesNotCombineRemainingItems() {
+        let options = DisplayOptions(showFiveHour: false, showCountdown: false, showTPS: false)
+        let items = MenuBarFormatter.items(quota: quota(), sample: nil, options: options, now: now)
+        #expect(items.count == 1)
+        #expect(items[0].metric == .weekly)
+        #expect(items[0].title == "AI 61%")
+    }
+
+    @Test func missingWindowIsNAOnlyAfterValidSnapshot() {
         let weekly = QuotaSnapshot(fiveHour: nil, weekly: quota().weekly, updatedAt: now, source: .appServer)
-        #expect(MenuBarFormatter.title(quota: weekly, sample: nil, options: DisplayOptions(), now: now) == "5h N/A | 7d 61% | — TPS")
+        let items = MenuBarFormatter.items(quota: weekly, sample: nil, options: DisplayOptions(), now: now)
+        #expect(items[0].title == "AI N/A")
+        #expect(items[1].title == "AI 61% 4d8h")
     }
 
-    @Test func testCacheAndFailedRefreshHaveVisibleMarker() {
-        #expect(MenuBarFormatter.title(quota: quota(source: .logCache), sample: nil,
-                                             options: DisplayOptions(), now: now).hasSuffix(" *"))
-        #expect(MenuBarFormatter.title(quota: quota(), sample: nil,
-                                             options: DisplayOptions(), now: now, stale: true).hasSuffix(" *"))
+    @Test func eachCachedQuotaHasMarkerButTPSDoesNot() {
+        let items = MenuBarFormatter.items(quota: quota(source: .logCache), sample: sample,
+                                           options: DisplayOptions(), now: now)
+        #expect(items[0].title.hasSuffix(" *"))
+        #expect(items[1].title.hasSuffix(" *"))
+        #expect(!items[2].title.hasSuffix(" *"))
+        #expect(items[0].accessibilityLabel.contains("cached"))
+        let failed = MenuBarFormatter.items(quota: quota(), sample: nil,
+                                            options: DisplayOptions(), now: now, stale: true)
+        #expect(failed[0].title.hasSuffix(" *"))
     }
 
-    @Test func testCompletedTPSFormatsWithoutAddingReasoningTwice() {
-        let sample = TPSSample(id: "response", model: "test-model", outputTokens: 734,
-                               reasoningTokens: 300, elapsedSeconds: 10, completedAt: now)
-        #expect(MenuBarFormatter.title(quota: nil, sample: sample,
-                                              options: DisplayOptions(showFiveHour: false, showWeekly: false), now: now) == "73 TPS")
+    @Test func tpsPrecisionAndSuffixAreIndependent() {
+        let options = DisplayOptions(showFiveHour: false, showWeekly: false, tpsDecimals: 1, showTPSLabel: false)
+        let items = MenuBarFormatter.items(quota: nil, sample: sample, options: options, now: now)
+        #expect(items.count == 1)
+        #expect(items[0].title == "73.4")
+        #expect(items[0].metric == .tps)
+        #expect(items[0].accessibilityLabel.contains("effective tokens per second"))
+        let labeled = MenuBarFormatter.items(quota: nil, sample: sample,
+                                             options: DisplayOptions(showFiveHour: false, showWeekly: false, tpsDecimals: 1), now: now)
+        #expect(labeled[0].title == "73.4 TPS")
     }
 
-    @Test func testAllHiddenKeepsClickableAppIdentity() {
+    @Test func tpsPrecisionIsBoundedToSupportedChoices() {
+        var options = DisplayOptions(showFiveHour: false, showWeekly: false, tpsDecimals: 99)
+        #expect(MenuBarFormatter.items(quota: nil, sample: sample, options: options, now: now)[0].title == "73.4 TPS")
+        options.tpsDecimals = -5
+        #expect(MenuBarFormatter.items(quota: nil, sample: sample, options: options, now: now)[0].title == "73 TPS")
+    }
+
+    @Test func allHiddenKeepsOneClickableAIItem() {
         let options = DisplayOptions(showFiveHour: false, showWeekly: false, showTPS: false)
-        #expect(MenuBarFormatter.title(quota: nil, sample: nil, options: options, now: now) == "CodexMeter")
+        let items = MenuBarFormatter.items(quota: nil, sample: nil, options: options, now: now)
+        #expect(items.count == 1)
+        #expect(items[0].metric == .fallback)
+        #expect(items[0].title == "AI")
     }
 
-    @Test func testResetCountdownHandlesPastMissingAndMinuteRounding() {
+    @Test func resetCountdownHandlesPastMissingAndMinuteRounding() {
         #expect(MenuBarFormatter.countdown(until: nil, now: now) == "—")
         #expect(MenuBarFormatter.countdown(until: now.addingTimeInterval(-300), now: now) == "now")
         #expect(MenuBarFormatter.countdown(until: now.addingTimeInterval(1), now: now) == "1m")
+        #expect(MenuBarFormatter.countdown(until: now.addingTimeInterval(-300), now: now, style: .clock) == "00:00")
+    }
+
+    @Test func oldEncodedDisplayOptionsGainNewStyleDefaults() throws {
+        let legacy = Data("{\"fullMode\":false,\"showFiveHour\":true,\"showWeekly\":false,\"showCountdown\":false,\"showTPS\":true}".utf8)
+        let options = try JSONDecoder().decode(DisplayOptions.self, from: legacy)
+        #expect(options.quotaLabelStyle == .ai)
+        #expect(options.countdownStyle == .compact)
+        #expect(options.tpsDecimals == 0)
+        #expect(options.showTPSLabel)
+        #expect(!options.showWeekly)
+        #expect(!options.showCountdown)
     }
 }

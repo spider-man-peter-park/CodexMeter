@@ -103,7 +103,7 @@ private final class AppServerRunner: @unchecked Sendable {
         defer { finish(process, input: input, output: output) }
         var buffer = Data()
         try send(["id": 1, "method": "initialize", "params": [
-            "clientInfo": ["name": "codexmeter", "title": "CodexMeter", "version": "0.1.0"]
+            "clientInfo": ["name": "codexmeter", "title": "CodexMeter", "version": "0.2.0"]
         ]], to: input)
         _ = try response(id: 1, process: process, output: output, buffer: &buffer, deadline: deadline)
         try send(["method": "initialized"], to: input)

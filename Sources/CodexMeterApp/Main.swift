@@ -5,61 +5,119 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem!
+    private var statusItems: [MenuBarMetric: NSStatusItem] = [:]
+    private var anchorMetric: MenuBarMetric?
     private let popover = NSPopover()
     private let model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.target = self
-        statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        statusItem.button?.setAccessibilityLabel("CodexMeter")
         popover.behavior = .transient
         popover.animates = true
         let controller = NSHostingController(rootView: PopoverView(model: model))
         controller.sizingOptions = [.preferredContentSize]
         popover.contentViewController = controller
-        model.changed = { [weak self] in self?.updateTitle() }
-        updateTitle()
+        model.changed = { [weak self] in self?.updateStatusItems() }
+        updateStatusItems()
         model.start()
         if CommandLine.arguments.contains("--show-popover") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.togglePopover() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self, let button = self.firstButton else { return }
+                self.togglePopover(button)
+            }
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) { model.stop() }
 
-    private func updateTitle() {
-        guard let button = statusItem?.button else { return }
-        let title = MenuBarFormatter.title(quota: model.quota, sample: model.sample, options: model.options,
-                                           now: model.now, stale: model.quotaWarning != nil)
-        let text = NSMutableAttributedString(string: title, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor.labelColor
-        ])
-        for (label, window) in [("5h", model.quota?.fiveHour), ("7d", model.quota?.weekly)] {
-            guard let window, window.remainingPercent <= 20 else { continue }
-            let value = "\(label) \(Int(window.remainingPercent.rounded()))%"
-            let range = (title as NSString).range(of: value)
-            if range.location != NSNotFound {
-                text.addAttribute(.foregroundColor, value: window.remainingPercent <= 10 ? NSColor.systemRed : NSColor.systemOrange,
-                                  range: range)
-            }
-        }
-        button.attributedTitle = text
-        var tooltip = "CodexMeter · Click for details"
-        if let date = model.quota?.updatedAt { tooltip += "\nQuota updated: \(date.formatted())" }
-        if title.hasSuffix("*") { tooltip += "\n* Cached quota; may be outdated" }
-        if let sample = model.sample { tooltip += "\nTPS completed: \(sample.completedAt.formatted())" }
-        button.toolTip = tooltip
-        button.setAccessibilityValue(title)
+    private var firstButton: NSStatusBarButton? {
+        [MenuBarMetric.tps, .weekly, .fiveHour, .fallback].compactMap { statusItems[$0]?.button }.first
     }
 
-    @objc private func togglePopover() {
-        if popover.isShown { popover.performClose(nil); return }
-        guard let button = statusItem.button else { return }
+    private func updateStatusItems() {
+        let descriptors = MenuBarFormatter.items(quota: model.quota, sample: model.sample,
+            options: model.options, now: model.now, stale: model.quotaWarning != nil)
+        let needed = Set(descriptors.map(\.metric))
+        let reanchor = popover.isShown && Set(statusItems.keys) != needed
+        if reanchor { closePopoverImmediately() }
+        for metric in Array(statusItems.keys) where !needed.contains(metric) {
+            if let item = statusItems.removeValue(forKey: metric) {
+                NSStatusBar.system.removeStatusItem(item)
+            }
+        }
+        // Each metric owns a native item and a stable identity for macOS position restoration.
+        for descriptor in descriptors.reversed() where statusItems[descriptor.metric] == nil {
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            item.autosaveName = "CodexMeter.\(descriptor.metric.rawValue)"
+            item.isVisible = true
+            item.button?.target = self
+            item.button?.action = #selector(togglePopover(_:))
+            item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            item.button?.tag = MenuBarMetric.allCases.firstIndex(of: descriptor.metric) ?? 0
+            statusItems[descriptor.metric] = item
+        }
+        for descriptor in descriptors {
+            guard let button = statusItems[descriptor.metric]?.button else { continue }
+            let text = NSMutableAttributedString(string: descriptor.title, attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.labelColor
+            ])
+            let window: QuotaWindow?
+            switch descriptor.metric {
+            case .fiveHour: window = model.quota?.fiveHour
+            case .weekly: window = model.quota?.weekly
+            default: window = nil
+            }
+            if let window, window.remainingPercent <= 20 {
+                let range = (descriptor.title as NSString).range(of: "\(Int(window.remainingPercent.rounded()))%")
+                if range.location != NSNotFound {
+                    text.addAttribute(.foregroundColor,
+                        value: window.remainingPercent <= 10 ? NSColor.systemRed : NSColor.systemOrange, range: range)
+                }
+            }
+            button.attributedTitle = text
+            button.setAccessibilityLabel(descriptor.accessibilityLabel)
+            button.setAccessibilityValue(descriptor.title)
+            var tooltip = descriptor.accessibilityLabel + " · Click for details"
+            if descriptor.metric == .tps {
+                if let sample = model.sample { tooltip += "\nResponse completed: \(sample.completedAt.formatted())" }
+                if model.latestUnmeasurable { tooltip += "\nShowing the last response with reliable timing" }
+            } else if let quota = model.quota {
+                tooltip += "\nQuota updated: \(quota.updatedAt.formatted())"
+                if let reset = window?.resetsAt { tooltip += "\nResets: \(reset.formatted())" }
+                if quota.isStale || quota.source == .logCache || model.quotaWarning != nil {
+                    tooltip += "\n* Cached quota; may be outdated"
+                }
+            }
+            button.toolTip = tooltip
+        }
+        if reanchor {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                guard let self, let button = self.firstButton else { return }
+                self.showPopover(button)
+            }
+        }
+    }
+
+    @objc private func togglePopover(_ sender: NSStatusBarButton) {
+        let metric = MenuBarMetric.allCases[sender.tag]
+        if popover.isShown {
+            if anchorMetric == metric { popover.performClose(nil); return }
+            closePopoverImmediately()
+            DispatchQueue.main.async { [weak self] in self?.showPopover(sender) }
+            return
+        }
+        showPopover(sender)
+    }
+
+    private func closePopoverImmediately() {
+        popover.animates = false
+        popover.close()
+        popover.animates = true
+    }
+
+    private func showPopover(_ button: NSStatusBarButton) {
+        anchorMetric = MenuBarMetric.allCases[button.tag]
         NSApplication.shared.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
@@ -100,6 +158,10 @@ struct CodexMeterMain {
                 }
             }
             output["quota"] = limits
+            if let credits = quota.resetCredits {
+                output["resetCredits"] = ["availableCount": credits.availableCount,
+                    "detailCount": credits.credits.map(\.count) as Any? ?? NSNull()]
+            }
         }
         if let sample = logs.latestSample {
             output["tps"] = ["value": sample.tokensPerSecond, "outputTokens": sample.outputTokens,
@@ -107,6 +169,8 @@ struct CodexMeterMain {
                              "completedAt": ISO8601DateFormatter().string(from: sample.completedAt),
                              "model": sample.model ?? "unknown", "estimated": sample.isEstimated]
         }
+        output["menuItems"] = MenuBarFormatter.items(quota: quota, sample: logs.latestSample,
+            options: AppModel().options).map { ["metric": $0.metric.rawValue, "title": $0.title] }
         if let encoded = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .prettyPrinted]),
            let text = String(data: encoded, encoding: .utf8) { print(text) }
     }

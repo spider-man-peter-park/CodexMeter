@@ -2,12 +2,19 @@
 
 A small, native macOS menu bar companion for **OpenAI Codex Desktop**. Swift + SwiftUI + AppKit; no Electron, service, database, API key, or third-party runtime dependencies.
 
-```text
-Compact: 5h 82% | 7d 61% | 73 TPS
-Full:    5h 82% 2h14m | 7d 61% 4d8h | 73 TPS
-```
+The menu bar contains **three independent native items**, one for each quota window and one for TPS. Default examples:
 
-These are examples, not hardcoded readings. Click the menu bar text for quota bars, reset countdowns, response details, refresh, settings and Quit. Missing data is `—`; a window absent from an otherwise valid account response is `N/A`. `*` marks cached or stale quota. An account with only weekly quota stays weekly-only.
+| Item | Text |
+| --- | --- |
+| 5-hour quota | `AI 82% 2h14m` |
+| 7-day quota | `AI 61% 4d8h` |
+| Latest response | `73 TPS` |
+
+These are examples, not hardcoded readings. Each item can be hidden separately and moved independently using the standard macOS Command-drag gesture. Click any item for the common detail panel, including quota bars, response details, remaining reset-credit cards, refresh, settings and Quit. Hovering identifies which quota window an `AI` item represents.
+
+Quota labels can be **AI**, **5h / 7d**, or **None**. Reset countdowns appear immediately after the remaining percentage and have their own toggle, with compact (`2h14m`, `4d8h`) or clock (`02:14`, `4d08:00`) formatting. TPS has 0/1 decimal-place and suffix controls. If all metrics are hidden, a small `AI` item keeps settings accessible.
+
+Missing data is `—`; a window absent from an otherwise valid account response is `N/A`. `*` marks cached or stale quota. An account with only weekly quota stays weekly-only. Version 0.2 migrates the original compact/full preference to independent controls and initially selects AI labels with countdowns enabled.
 
 ## Install and run
 
@@ -15,7 +22,7 @@ Requires macOS 14 or later and an already signed-in Codex Desktop installation. 
 
 Download [CodexMeter-macOS-arm64.zip](https://github.com/spider-man-peter-park/CodexMeter/raw/refs/heads/main/dist/CodexMeter-macOS-arm64.zip) and unzip it, move `CodexMeter.app` into `/Applications`, then open it. It has no Dock icon or main window. This MVP is ad-hoc signed, not Apple notarized; building locally is the most direct option if macOS blocks a downloaded copy. For a downloaded build, use the standard macOS Privacy & Security “Open Anyway” flow only if you trust this repository. The app requests no Accessibility, Screen Recording or network interception permissions.
 
-Launch at login is off until enabled in Settings. Install in Applications before enabling it. macOS may require approval in System Settings → General → Login Items. All other settings are in the popover: compact/full, each quota window, countdown in full mode, TPS and automatic refresh. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown still ticks once a minute.
+Launch at login is off until enabled in Settings. Install in Applications before enabling it. macOS may require approval in System Settings → General → Login Items. All other settings are in the popover: quota label style, each quota window, reset countdown visibility and format, TPS visibility, precision and suffix, and automatic refresh. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown still ticks once a minute.
 
 ## Build and test
 
@@ -60,6 +67,12 @@ There is no login, reset-credit, turn, thread, tool or coding request. The child
 The read-only query has a 15-second total timeout, bounded output and cancellation handling. Each query closes pipes, terminates the child and reaps it, escalating to SIGKILL only if it will not exit. It runs once at launch and every 180 seconds while automatic refresh is on, or on manual refresh. Queries never overlap. Countdown text updates locally every 60 seconds. Transient failures preserve the last valid quota, its timestamp and a stale marker. Recent local `rate_limits` snapshots are a fallback, always labeled cached and potentially outdated. Expired reset times do not manufacture replenished quota; the countdown says `now` until a fresh reading arrives.
 
 Percentages are clamped to `max(0, min(100, 100 - usedPercent))`. Windows are selected by duration, 300 and 10080 minutes, regardless of primary/secondary order. The `codex` bucket is used when the multi-bucket API is available; unrelated model buckets are never merged.
+
+## Remaining reset credits
+
+The detail panel reads `rateLimitResetCredits` from the existing read-only quota response. It shows the server's authoritative available count plus each returned card's title, status, grant time, expiration time and description. Times use the Mac's local time zone. The app does not consume cards or invoke any reset API.
+
+Unknown credit data stays unavailable, never zero. A count-only response is labeled explicitly; an empty or capped detail list does not change the server's count. Cached or restored credit data shares the snapshot's timestamp and stale indication. Older saved quota snapshots remain readable when they have no credit fields.
 
 ## Effective TPS and accuracy
 
