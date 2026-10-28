@@ -13,7 +13,7 @@ These are examples, not hardcoded readings. Click the menu bar text for quota ba
 
 Requires macOS 14 or later and an already signed-in Codex Desktop installation. The locally built release is for Apple Silicon; build from source on an Intel Mac. Codex may be installed as Codex.app or integrated in ChatGPT.app. CodexMeter checks registered applications and standard install paths before falling back to `codex` in PATH.
 
-Download and unzip `CodexMeter-macOS-arm64.zip`, move `CodexMeter.app` into `/Applications`, then open it. It has no Dock icon or main window. This MVP is ad-hoc signed, not Apple notarized; building locally is the most direct option if macOS blocks a downloaded copy. For a downloaded build, use the standard macOS Privacy & Security “Open Anyway” flow only if you trust this repository. The app requests no Accessibility, Screen Recording or network interception permissions.
+Download [CodexMeter-macOS-arm64.zip](https://github.com/spider-man-peter-park/CodexMeter/raw/refs/heads/main/dist/CodexMeter-macOS-arm64.zip) and unzip it, move `CodexMeter.app` into `/Applications`, then open it. It has no Dock icon or main window. This MVP is ad-hoc signed, not Apple notarized; building locally is the most direct option if macOS blocks a downloaded copy. For a downloaded build, use the standard macOS Privacy & Security “Open Anyway” flow only if you trust this repository. The app requests no Accessibility, Screen Recording or network interception permissions.
 
 Launch at login is off until enabled in Settings. Install in Applications before enabling it. macOS may require approval in System Settings → General → Login Items. All other settings are in the popover: compact/full, each quota window, countdown in full mode, TPS and automatic refresh. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown still ticks once a minute.
 
@@ -45,7 +45,7 @@ Inside a restricted build environment, SwiftPM may need an explicit writable scr
 
 If a synced Documents folder adds Finder metadata that prevents code signing, set `CODEXMETER_OUTPUT_DIR=/private/tmp/CodexMeter-build` when invoking the build script, or build in a local non-synced folder.
 
-The test script discovers the installed Swift Testing macro plugin. The current development machine has Command Line Tools without full Xcode; the native `.app` and unit tests are built locally. The included GitHub Actions workflow separately exercises the Xcode app project on a full Xcode runner.
+The test script discovers the installed Swift Testing macro plugin. The current development machine has Command Line Tools without full Xcode; the native `.app` and unit tests are built locally. The included GitHub Actions workflow separately exercises the Xcode app project on a full Xcode runner. Both that Xcode build and the standalone app build passed during initial delivery.
 
 ## Data and refresh behavior
 
