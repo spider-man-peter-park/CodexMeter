@@ -77,8 +77,10 @@ struct PopoverView: View {
     private var quotaSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             sectionTitle("Plan limits", symbol: "chart.bar.fill")
-            quotaRow("5-hour limit", symbol: "clock", window: model.quota?.fiveHour)
-            Divider()
+            if model.quota == nil || model.quota?.fiveHour != nil {
+                quotaRow("5-hour limit", symbol: "clock", window: model.quota?.fiveHour)
+                Divider()
+            }
             quotaRow("7-day limit", symbol: "calendar", window: model.quota?.weekly)
             if model.quota?.source == .logCache || model.quota?.isStale == true || model.quotaWarning != nil {
                 Label("Cached quota · may be outdated", systemImage: "clock.badge.exclamationmark")
@@ -126,9 +128,9 @@ struct PopoverView: View {
             }
             if let sample = model.sample {
                 HStack {
-                    metric("Output", value: sample.outputTokens.formatted())
+                    metric("Output", value: TokenCountFormatter.compact(sample.outputTokens))
                     Spacer()
-                    metric("Reasoning¹", value: sample.reasoningTokens.formatted())
+                    metric("Reasoning¹", value: TokenCountFormatter.compact(sample.reasoningTokens))
                     Spacer()
                     metric("Elapsed", value: String(format: "%.2fs", sample.elapsedSeconds))
                 }
@@ -157,9 +159,9 @@ struct PopoverView: View {
                 if let plan = model.accountInfo?.planType { Text(plan).font(.caption).foregroundStyle(.secondary) }
             }
             HStack {
-                metric("Lifetime tokens", value: model.accountInfo?.summary?.lifetimeTokens?.formatted() ?? "—")
+                metric("Lifetime tokens", value: TokenCountFormatter.compact(model.accountInfo?.summary?.lifetimeTokens))
                 Spacer()
-                metric("Peak daily tokens", value: model.accountInfo?.summary?.peakDailyTokens?.formatted() ?? "—")
+                metric("Peak daily tokens", value: TokenCountFormatter.compact(model.accountInfo?.summary?.peakDailyTokens))
             }
             Divider()
             HStack {
@@ -196,8 +198,11 @@ struct PopoverView: View {
                     HStack {
                         Text("Latest reported day · \(latest.startDate)")
                         Spacer()
-                        Text(latest.tokens.formatted()).monospacedDigit().fontWeight(.medium)
+                        Text(TokenCountFormatter.compact(latest.tokens)).monospacedDigit().fontWeight(.medium)
                     }.font(.caption)
+                }
+                if let series = model.recentTokenUsage {
+                    TokenUsageChart(series: series)
                 }
                 DisclosureGroup("Daily tokens · \(sorted.count) dates") {
                     VStack(spacing: 7) {
@@ -223,7 +228,7 @@ struct PopoverView: View {
         HStack {
             Text(day.startDate).foregroundStyle(.secondary)
             Spacer()
-            Text(day.tokens.formatted()).monospacedDigit()
+            Text(TokenCountFormatter.compact(day.tokens)).monospacedDigit()
         }.font(.caption)
     }
 
@@ -271,8 +276,9 @@ struct PopoverView: View {
                     ForEach(MenuBarColorStyle.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
                 }
                 Picker("Background", selection: $model.options.itemStyle) {
-                    Text("Plain").tag(MenuBarItemStyle.plain)
-                    Text("Capsule").tag(MenuBarItemStyle.capsule)
+                    Text("On open").tag(MenuBarItemStyle.activeCapsule)
+                    Text("Always").tag(MenuBarItemStyle.capsule)
+                    Text("None").tag(MenuBarItemStyle.plain)
                 }.pickerStyle(.segmented)
                 Picker("Spacing", selection: $model.options.spacing) {
                     Text("Compact").tag(MenuBarSpacing.compact)
@@ -288,7 +294,8 @@ struct PopoverView: View {
                 Picker("Quota labels", selection: $model.options.quotaLabelStyle) {
                     Text("AI").tag(QuotaLabelStyle.ai)
                     Text("5h / 7d").tag(QuotaLabelStyle.window)
-                    Text("Icon").tag(QuotaLabelStyle.icon)
+                    Text("Window icons").tag(QuotaLabelStyle.icon)
+                    Text("GPT icon").tag(QuotaLabelStyle.gpt)
                     Text("Custom").tag(QuotaLabelStyle.custom)
                     Text("None").tag(QuotaLabelStyle.none)
                 }
@@ -313,6 +320,10 @@ struct PopoverView: View {
                     Text("Parentheses").tag(CountdownSeparator.parentheses)
                 }
                 Toggle("Show TPS", isOn: $model.options.showTPS)
+                Picker("TPS layout", selection: $model.options.tpsLayout) {
+                    Text("Inline").tag(MenuBarTPSLayout.inline)
+                    Text("Stacked").tag(MenuBarTPSLayout.stacked)
+                }.pickerStyle(.segmented)
                 Picker("TPS decimals", selection: $model.options.tpsDecimals) {
                     Text("0").tag(0)
                     Text("1").tag(1)

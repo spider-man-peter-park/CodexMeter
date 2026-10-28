@@ -134,6 +134,7 @@ import Testing
         #expect(options.countdownStyle == .compact)
         #expect(options.tpsDecimals == 0)
         #expect(options.showTPSLabel)
+        #expect(options.tpsLayout == .inline)
         #expect(!options.showWeekly)
         #expect(!options.showCountdown)
     }
@@ -145,6 +146,32 @@ import Testing
         #expect(items[1].symbolName == "calendar")
         #expect(items[0].accessibilityLabel.contains("5-hour quota"))
         #expect(items[2].symbolName == nil)
+    }
+
+    @Test func gptLogoLabelsPreserveIndependentQuotaMetricsAndSurvivePreferences() throws {
+        let options = DisplayOptions(quotaLabelStyle: .gpt)
+        let restored = try JSONDecoder().decode(DisplayOptions.self, from: JSONEncoder().encode(options))
+        let items = MenuBarFormatter.items(quota: quota(), sample: sample, options: restored, now: now)
+        #expect(items.map(\.metric) == [.fiveHour, .weekly, .tps])
+        #expect(items.map(\.title) == ["82% 2h14m", "61% 4d8h", "73 TPS"])
+        #expect(items.map(\.usesGPTLogo) == [true, true, false])
+        #expect(items.allSatisfy { $0.symbolName == nil })
+        #expect(items[0].accessibilityLabel.contains("5-hour"))
+        #expect(items[1].accessibilityLabel.contains("7-day"))
+    }
+
+    @Test func gptLogoWorksWithoutQuotaDataAndKeepsHiddenMetricsAccessible() {
+        var options = DisplayOptions(quotaLabelStyle: .gpt)
+        let missing = MenuBarFormatter.items(quota: nil, sample: nil, options: options, now: now)
+        #expect(missing.map(\.title) == ["—", "—", "— TPS"])
+        #expect(missing.map(\.usesGPTLogo) == [true, true, false])
+        options.showFiveHour = false
+        options.showWeekly = false
+        options.showTPS = false
+        let fallback = MenuBarFormatter.items(quota: nil, sample: nil, options: options, now: now)
+        #expect(fallback.count == 1)
+        #expect(fallback[0].metric == .fallback)
+        #expect(fallback[0].usesGPTLogo)
     }
 
     @Test func customLabelsAreBoundedAndRemoveControlCharacters() {
@@ -187,8 +214,8 @@ import Testing
     @Test func fontSizeAndSpacingStayWithinMenuBarBounds() {
         #expect(DisplayOptions(fontSize: 2).normalizedFontSize == 9)
         #expect(DisplayOptions(fontSize: 50).normalizedFontSize == 16)
-        #expect(DisplayOptions(fontSize: .nan).normalizedFontSize == 11)
-        #expect(DisplayOptions(fontSize: .infinity).normalizedFontSize == 11)
+        #expect(DisplayOptions(fontSize: .nan).normalizedFontSize == 12)
+        #expect(DisplayOptions(fontSize: .infinity).normalizedFontSize == 12)
         #expect(DisplayOptions(spacing: .comfortable).itemHorizontalPadding > DisplayOptions(spacing: .compact).itemHorizontalPadding)
     }
 
@@ -223,6 +250,33 @@ import Testing
                                      spacing: .comfortable, customQuotaLabel: "My AI", showPercentSign: false,
                                      countdownSeparator: .parentheses)
         #expect(try JSONDecoder().decode(DisplayOptions.self, from: JSONEncoder().encode(options)) == options)
+    }
+
+    @Test func stackedTPSRetainsPrecisionVisibilityAndPreferenceIndependently() throws {
+        let options = DisplayOptions(showFiveHour: false, showWeekly: false, tpsDecimals: 1,
+                                     tpsLayout: .stacked)
+        let saved = try JSONDecoder().decode(DisplayOptions.self, from: JSONEncoder().encode(options))
+        #expect(saved.tpsLayout == .stacked)
+        let items = MenuBarFormatter.items(quota: nil, sample: sample, options: saved, now: now)
+        #expect(items.count == 1)
+        #expect(items[0].metric == .tps)
+        #expect(items[0].tpsValue == "73.4")
+        #expect(items[0].title == "73.4 TPS")
+        let missing = MenuBarFormatter.items(quota: nil, sample: nil, options: saved, now: now)
+        #expect(missing[0].tpsValue == "—")
+        var hidden = saved
+        hidden.showTPS = false
+        #expect(MenuBarFormatter.items(quota: nil, sample: sample, options: hidden, now: now)[0].metric == .fallback)
+    }
+
+    @Test func backgroundDefaultsToOpenPanelAndRetainsExplicitPreferences() throws {
+        #expect(DisplayOptions().itemStyle == .activeCapsule)
+        let legacy = try JSONDecoder().decode(DisplayOptions.self, from: Data("{}".utf8))
+        #expect(legacy.itemStyle == .activeCapsule)
+        for style in MenuBarItemStyle.allCases {
+            let options = DisplayOptions(itemStyle: style)
+            #expect(try JSONDecoder().decode(DisplayOptions.self, from: JSONEncoder().encode(options)).itemStyle == style)
+        }
     }
 
 }

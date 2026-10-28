@@ -93,7 +93,7 @@ public enum AccountInfoParser {
         return buckets
     }
 
-    private static func validDay(_ text: String) -> Bool {
+    static func validDay(_ text: String) -> Bool {
         let bytes = Array(text.utf8)
         guard bytes.count == 10, bytes[4] == 45, bytes[7] == 45,
               bytes.enumerated().allSatisfy({ $0.offset == 4 || $0.offset == 7 || (48...57).contains($0.element) }),

@@ -12,7 +12,13 @@ The menu bar contains **three independent native items**, one for each quota win
 
 These are examples, not hardcoded readings. Each item can be hidden separately and moved independently using the standard macOS Command-drag gesture. Click any item for the common detail panel, including quota bars, response details, account token statistics, remaining reset-credit cards, refresh, settings and Quit. Hovering identifies which quota window an `AI` item represents.
 
-Quota labels can be **AI**, **5h / 7d**, or **None**. Reset countdowns appear immediately after the remaining percentage and have their own toggle, with compact (`2h14m`, `4d8h`) or clock (`02:14`, `4d08:00`) formatting. TPS has 0/1 decimal-place and suffix controls. Appearance settings include Minimal/Balanced/Elegant presets, 9–16 pt system/rounded/monospaced fonts, weight, monochrome or accent colors, capsule backgrounds, spacing, SF Symbols or custom labels, the percent sign, and countdown separators. Presets preserve which metrics are visible and the refresh periods. If all metrics are hidden, a small `AI` item keeps settings accessible.
+Quota labels can be **AI**, **5h / 7d**, **Window icons**, **GPT icon**, **Custom**, or **None**. The GPT option uses the original black/white OpenAI Blossom assets from the [official logo package](https://cdn.openai.com/brand/OpenAI-Logos-2025.zip), bundled locally, and keeps the two quota items independent. Reset countdowns appear immediately after the remaining percentage and have their own toggle, with compact (`2h14m`, `4d8h`) or clock (`02:14`, `4d08:00`) formatting. TPS has 0/1 decimal-place and suffix controls. Appearance settings include Minimal/Balanced/Elegant presets, 9–16 pt system/rounded/monospaced fonts, weight, monochrome or accent colors, capsule backgrounds, spacing, SF Symbols or custom labels, the percent sign, and countdown separators. Presets preserve which metrics are visible and the refresh periods. If all metrics are hidden, a small `AI` item keeps settings accessible.
+
+The default appearance uses 12 pt semibold text and AI labels, with a solid, high-contrast capsule only on the menu item whose detail panel is open. Closing the panel clears the background. Background settings can also keep capsules always visible or always use plain labels. Filled badges render their text and background together without translucent button layers; plain monochrome labels use native template rendering so macOS controls their menu-bar contrast. Existing saved appearance choices remain available.
+
+The panel closes when you click another application or switch away, including after editing settings. Pending anchor changes are cancelled on dismissal so changing metric visibility cannot reopen it after an outside click.
+
+Clicking any menu bar item also refreshes quota, account statistics and local TPS, even with automatic refresh turned off. In-flight reads are reused rather than overlapped. Accounts without a reported 5-hour window omit that row in the details. The TPS layout can be Inline or Stacked, with a small TPS label above a larger number; its precision and label visibility remain independent settings.
 
 Missing data is `—`; a window absent from an otherwise valid account response is `N/A`. `*` marks cached or stale quota. An account with only weekly quota stays weekly-only. Version 0.2 migrates the original compact/full preference to independent controls and initially selects AI labels with countdowns enabled.
 
@@ -72,7 +78,11 @@ Percentages are clamped to `max(0, min(100, 100 - usedPercent))`. Windows are se
 
 `account/usage/read` supplies the same account-wide statistics exposed by the supported Codex account surface: lifetime tokens, peak daily tokens, current and longest streak, longest running turn, and per-date token totals. These are server account statistics, distinct from the latest response's TPS and local log history. The account query uses only `account/read` and `account/usage/read`, never inference or conversation APIs.
 
+Token counts in the detail panel use decimal K/M/B/T units with at most one decimal place and no trailing `.0`, for example `1.3B` or `22M`. Counts below 1,000 remain whole numbers; unavailable values remain `—`. This display formatting does not change the stored counts or TPS calculations.
+
 Daily buckets retain the exact `YYYY-MM-DD` labels reported by Codex. Reporting may lag; the latest returned day is explicitly labeled and a missing current day is never shown as zero or silently substituted with the preceding day. All returned dates can be expanded. Null summary fields stay unavailable. Separate timestamps and stale indicators identify cached account statistics after failures or restart. Only the whitelisted counters, dates and plan label are retained; account email, account IDs, avatars and thread-level usage are not persisted.
+
+The detail panel includes an interactive line chart of the seven calendar days ending on the latest reported date, with its exact range shown. Select a day to inspect its token count. Missing dates remain gaps and are not joined across or counted as zero; explicitly reported zeroes are plotted at zero. The chart uses the same compact K/M/B/T labels and read-only account statistics as the daily list, with no additional queries or stored history.
 
 
 ## Remaining reset credits
@@ -120,7 +130,7 @@ The executable can print a small local numeric status report, without prompts, r
 build/CodexMeter.app/Contents/MacOS/CodexMeter --diagnose
 ```
 
-It makes one normal quota query. `--show-popover` opens the panel at launch. `--inspect-ui` keeps it open across application-focus changes for extended visual inspection; ordinary launches keep the standard transient behavior. Do not post diagnostics or screenshots publicly if you wish to keep your usage metrics private.
+It makes one normal quota query. `--show-popover` opens the panel at launch; `--inspect-ui` is an alias with the same normal outside-click dismissal. Do not post diagnostics or screenshots publicly if you wish to keep your usage metrics private.
 
 ## Uninstall
 
@@ -135,6 +145,6 @@ This never removes Codex sessions or authentication/configuration files.
 
 ## References and license
 
-Independent Swift implementation under the [MIT license](LICENSE). The response-boundary approach was researched against [adenta/codex-tps](https://github.com/adenta/codex-tps), MIT, Copyright 2026 Andrew. No source code from that project was copied. CodexMeter additionally handles modern response usage IDs, Desktop provenance, fork replay, cancellation and persistent incremental state.
+Independent Swift implementation under the [MIT license](LICENSE). The optional OpenAI logo assets are trademarks of OpenAI and are excluded from that license; see [asset sources](Sources/CodexMeterApp/Resources/ASSET-SOURCES.md) and [OpenAI brand guidelines](https://openai.com/brand/). The response-boundary approach was researched against [adenta/codex-tps](https://github.com/adenta/codex-tps), MIT, Copyright 2026 Andrew. No source code from that project was copied. CodexMeter additionally handles modern response usage IDs, Desktop provenance, fork replay, cancellation and persistent incremental state.
 
 Protocol reference: [official Codex App Server documentation](https://learn.chatgpt.com/docs/app-server). Local help and actual event structures remain the source of compatibility checks. This is an independent companion, not an OpenAI product.

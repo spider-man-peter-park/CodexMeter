@@ -10,8 +10,13 @@ final class AppModel: ObservableObject {
         didSet { store(quota, forKey: quotaCacheKey) }
     }
     @Published var accountInfo: AccountInfoSnapshot? {
-        didSet { store(accountInfo, forKey: accountCacheKey) }
+        didSet {
+            store(accountInfo, forKey: accountCacheKey)
+            recentTokenUsage = accountInfo.flatMap { $0.dailyUsageBuckets }
+                .flatMap { TokenUsageSeries(buckets: $0) }
+        }
     }
+    @Published private(set) var recentTokenUsage: TokenUsageSeries?
     @Published var sample: TPSSample?
     @Published var now = Date()
     @Published var refreshing = false
@@ -100,6 +105,7 @@ final class AppModel: ObservableObject {
            var saved = try? JSONDecoder().decode(AccountInfoSnapshot.self, from: bytes) {
             saved.isStale = true
             accountInfo = saved
+            recentTokenUsage = saved.dailyUsageBuckets.flatMap { TokenUsageSeries(buckets: $0) }
             accountWarning = "Showing saved account statistics until the next successful refresh."
         }
     }

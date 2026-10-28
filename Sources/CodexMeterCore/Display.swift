@@ -5,17 +5,19 @@ public enum MenuBarMetric: String, Codable, CaseIterable, Hashable, Sendable {
 }
 
 public enum QuotaLabelStyle: String, Codable, CaseIterable, Sendable {
-    case ai, window, none, icon, custom
+    case ai, window, none, icon, gpt, custom
 }
 
 public enum CountdownStyle: String, Codable, CaseIterable, Sendable {
     case compact, clock
 }
 
+public enum MenuBarTPSLayout: String, Codable, CaseIterable, Sendable { case inline, stacked }
+
 public enum MenuBarFontWeight: String, Codable, CaseIterable, Sendable { case regular, medium, semibold }
 public enum MenuBarFontDesign: String, Codable, CaseIterable, Sendable { case system, rounded, monospaced }
 public enum MenuBarColorStyle: String, Codable, CaseIterable, Sendable { case adaptive, monochrome, blue, teal, purple }
-public enum MenuBarItemStyle: String, Codable, CaseIterable, Sendable { case plain, capsule }
+public enum MenuBarItemStyle: String, Codable, CaseIterable, Sendable { case plain, capsule, activeCapsule }
 public enum MenuBarSpacing: String, Codable, CaseIterable, Sendable { case compact, comfortable }
 public enum CountdownSeparator: String, Codable, CaseIterable, Sendable { case space, dot, slash, parentheses }
 public enum DisplayPreset: String, Codable, CaseIterable, Sendable { case minimal, balanced, elegant }
@@ -25,13 +27,18 @@ public struct MenuBarItem: Equatable, Sendable, Identifiable {
     public let title: String
     public let accessibilityLabel: String
     public let symbolName: String?
+    public let usesGPTLogo: Bool
+    public let tpsValue: String?
     public var id: MenuBarMetric { metric }
 
-    public init(metric: MenuBarMetric, title: String, accessibilityLabel: String, symbolName: String? = nil) {
+    public init(metric: MenuBarMetric, title: String, accessibilityLabel: String, symbolName: String? = nil,
+                usesGPTLogo: Bool = false, tpsValue: String? = nil) {
         self.metric = metric
         self.title = title
         self.accessibilityLabel = accessibilityLabel
         self.symbolName = symbolName
+        self.usesGPTLogo = usesGPTLogo
+        self.tpsValue = tpsValue
     }
 }
 
@@ -46,6 +53,7 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
     public var countdownStyle: CountdownStyle
     public var tpsDecimals: Int
     public var showTPSLabel: Bool
+    public var tpsLayout: MenuBarTPSLayout
     public var fontSize: Double
     public var fontWeight: MenuBarFontWeight
     public var fontDesign: MenuBarFontDesign
@@ -56,7 +64,7 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
     public var showPercentSign: Bool
     public var countdownSeparator: CountdownSeparator
 
-    public var normalizedFontSize: Double { fontSize.isFinite ? max(9, min(16, fontSize)) : 11 }
+    public var normalizedFontSize: Double { fontSize.isFinite ? max(9, min(16, fontSize)) : 12 }
     public var normalizedCustomQuotaLabel: String {
         let label = Self.sanitizeQuotaLabel(customQuotaLabel)
         return label.isEmpty ? "AI" : label
@@ -75,10 +83,10 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
     public init(fullMode: Bool = false, showFiveHour: Bool = true, showWeekly: Bool = true,
                 showCountdown: Bool = true, showTPS: Bool = true,
                 quotaLabelStyle: QuotaLabelStyle = .ai, countdownStyle: CountdownStyle = .compact,
-                tpsDecimals: Int = 0, showTPSLabel: Bool = true,
-                fontSize: Double = 11, fontWeight: MenuBarFontWeight = .medium,
+                tpsDecimals: Int = 0, showTPSLabel: Bool = true, tpsLayout: MenuBarTPSLayout = .inline,
+                fontSize: Double = 12, fontWeight: MenuBarFontWeight = .semibold,
                 fontDesign: MenuBarFontDesign = .system, colorStyle: MenuBarColorStyle = .adaptive,
-                itemStyle: MenuBarItemStyle = .plain, spacing: MenuBarSpacing = .compact,
+                itemStyle: MenuBarItemStyle = .activeCapsule, spacing: MenuBarSpacing = .comfortable,
                 customQuotaLabel: String = "AI", showPercentSign: Bool = true,
                 countdownSeparator: CountdownSeparator = .space) {
         self.fullMode = fullMode
@@ -90,6 +98,7 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
         self.countdownStyle = countdownStyle
         self.tpsDecimals = tpsDecimals
         self.showTPSLabel = showTPSLabel
+        self.tpsLayout = tpsLayout
         self.fontSize = fontSize
         self.fontWeight = fontWeight
         self.fontDesign = fontDesign
@@ -103,7 +112,7 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case fullMode, showFiveHour, showWeekly, showCountdown, showTPS
-        case quotaLabelStyle, countdownStyle, tpsDecimals, showTPSLabel
+        case quotaLabelStyle, countdownStyle, tpsDecimals, showTPSLabel, tpsLayout
         case fontSize, fontWeight, fontDesign, colorStyle, itemStyle, spacing
         case customQuotaLabel, showPercentSign, countdownSeparator
     }
@@ -119,12 +128,13 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
         countdownStyle = try values.decodeIfPresent(CountdownStyle.self, forKey: .countdownStyle) ?? .compact
         tpsDecimals = try values.decodeIfPresent(Int.self, forKey: .tpsDecimals) ?? 0
         showTPSLabel = try values.decodeIfPresent(Bool.self, forKey: .showTPSLabel) ?? true
-        fontSize = try values.decodeIfPresent(Double.self, forKey: .fontSize) ?? 11
-        fontWeight = try values.decodeIfPresent(MenuBarFontWeight.self, forKey: .fontWeight) ?? .medium
+        tpsLayout = try values.decodeIfPresent(MenuBarTPSLayout.self, forKey: .tpsLayout) ?? .inline
+        fontSize = try values.decodeIfPresent(Double.self, forKey: .fontSize) ?? 12
+        fontWeight = try values.decodeIfPresent(MenuBarFontWeight.self, forKey: .fontWeight) ?? .semibold
         fontDesign = try values.decodeIfPresent(MenuBarFontDesign.self, forKey: .fontDesign) ?? .system
         colorStyle = try values.decodeIfPresent(MenuBarColorStyle.self, forKey: .colorStyle) ?? .adaptive
-        itemStyle = try values.decodeIfPresent(MenuBarItemStyle.self, forKey: .itemStyle) ?? .plain
-        spacing = try values.decodeIfPresent(MenuBarSpacing.self, forKey: .spacing) ?? .compact
+        itemStyle = try values.decodeIfPresent(MenuBarItemStyle.self, forKey: .itemStyle) ?? .activeCapsule
+        spacing = try values.decodeIfPresent(MenuBarSpacing.self, forKey: .spacing) ?? .comfortable
         customQuotaLabel = try values.decodeIfPresent(String.self, forKey: .customQuotaLabel) ?? "AI"
         showPercentSign = try values.decodeIfPresent(Bool.self, forKey: .showPercentSign) ?? true
         countdownSeparator = try values.decodeIfPresent(CountdownSeparator.self, forKey: .countdownSeparator) ?? .space
@@ -146,12 +156,12 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
             tpsDecimals = 0
             showTPSLabel = false
         case .balanced:
-            fontSize = 11
-            fontWeight = .medium
+            fontSize = 12
+            fontWeight = .semibold
             fontDesign = .system
             colorStyle = .adaptive
-            itemStyle = .plain
-            spacing = .compact
+            itemStyle = .activeCapsule
+            spacing = .comfortable
             quotaLabelStyle = .ai
             countdownSeparator = .dot
             tpsDecimals = 0
@@ -183,7 +193,7 @@ public enum MenuBarFormatter {
             switch options.quotaLabelStyle {
             case .ai: label = "AI "
             case .window: label = windowLabel + " "
-            case .none, .icon: label = ""
+            case .none, .icon, .gpt: label = ""
             case .custom: label = options.normalizedCustomQuotaLabel + " "
             }
             var title = label + (value.map { "\(Int($0.remainingPercent.rounded()))" + (options.showPercentSign ? "%" : "") } ?? (quota == nil ? "—" : "N/A"))
@@ -208,7 +218,8 @@ public enum MenuBarFormatter {
                 accessibility += ", cached data, may be outdated"
             }
             return MenuBarItem(metric: metric, title: title, accessibilityLabel: accessibility,
-                               symbolName: options.quotaLabelStyle == .icon ? (metric == .fiveHour ? "clock" : "calendar") : nil)
+                               symbolName: options.quotaLabelStyle == .icon ? (metric == .fiveHour ? "clock" : "calendar") : nil,
+                               usesGPTLogo: options.quotaLabelStyle == .gpt)
         }
         if options.showFiveHour { result.append(window(.fiveHour, quota?.fiveHour)) }
         if options.showWeekly { result.append(window(.weekly, quota?.weekly)) }
@@ -217,10 +228,11 @@ public enum MenuBarFormatter {
             let value = sample.map { String(format: "%.*f", precision, $0.tokensPerSecond) } ?? "—"
             result.append(MenuBarItem(metric: .tps, title: value + (options.showTPSLabel ? " TPS" : ""),
                                       accessibilityLabel: sample == nil ? "Latest response speed unavailable" :
-                                        "Latest completed response, \(value) effective tokens per second"))
+                                        "Latest completed response, \(value) effective tokens per second", tpsValue: value))
         }
         return result.isEmpty ? [MenuBarItem(metric: .fallback, title: "AI", accessibilityLabel: "CodexMeter, open details",
-                                            symbolName: options.quotaLabelStyle == .icon ? "sparkles" : nil)] : result
+                                            symbolName: options.quotaLabelStyle == .icon ? "sparkles" : nil,
+                                            usesGPTLogo: options.quotaLabelStyle == .gpt)] : result
     }
 
     public static func title(quota: QuotaSnapshot?, sample: TPSSample?, options: DisplayOptions,
