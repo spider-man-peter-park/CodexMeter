@@ -10,9 +10,9 @@ The menu bar contains **three independent native items**, one for each quota win
 | 7-day quota | `AI 61% 4d8h` |
 | Latest response | `73 TPS` |
 
-These are examples, not hardcoded readings. Each item can be hidden separately and moved independently using the standard macOS Command-drag gesture. Click any item for the common detail panel, including quota bars, response details, remaining reset-credit cards, refresh, settings and Quit. Hovering identifies which quota window an `AI` item represents.
+These are examples, not hardcoded readings. Each item can be hidden separately and moved independently using the standard macOS Command-drag gesture. Click any item for the common detail panel, including quota bars, response details, account token statistics, remaining reset-credit cards, refresh, settings and Quit. Hovering identifies which quota window an `AI` item represents.
 
-Quota labels can be **AI**, **5h / 7d**, or **None**. Reset countdowns appear immediately after the remaining percentage and have their own toggle, with compact (`2h14m`, `4d8h`) or clock (`02:14`, `4d08:00`) formatting. TPS has 0/1 decimal-place and suffix controls. If all metrics are hidden, a small `AI` item keeps settings accessible.
+Quota labels can be **AI**, **5h / 7d**, or **None**. Reset countdowns appear immediately after the remaining percentage and have their own toggle, with compact (`2h14m`, `4d8h`) or clock (`02:14`, `4d08:00`) formatting. TPS has 0/1 decimal-place and suffix controls. Appearance settings include Minimal/Balanced/Elegant presets, 9–16 pt system/rounded/monospaced fonts, weight, monochrome or accent colors, capsule backgrounds, spacing, SF Symbols or custom labels, the percent sign, and countdown separators. Presets preserve which metrics are visible and the refresh periods. If all metrics are hidden, a small `AI` item keeps settings accessible.
 
 Missing data is `—`; a window absent from an otherwise valid account response is `N/A`. `*` marks cached or stale quota. An account with only weekly quota stays weekly-only. Version 0.2 migrates the original compact/full preference to independent controls and initially selects AI labels with countdowns enabled.
 
@@ -22,7 +22,7 @@ Requires macOS 14 or later and an already signed-in Codex Desktop installation. 
 
 Download [CodexMeter-macOS-arm64.zip](https://github.com/spider-man-peter-park/CodexMeter/raw/refs/heads/main/dist/CodexMeter-macOS-arm64.zip) and unzip it, move `CodexMeter.app` into `/Applications`, then open it. It has no Dock icon or main window. This MVP is ad-hoc signed, not Apple notarized; building locally is the most direct option if macOS blocks a downloaded copy. For a downloaded build, use the standard macOS Privacy & Security “Open Anyway” flow only if you trust this repository. The app requests no Accessibility, Screen Recording or network interception permissions.
 
-Launch at login is off until enabled in Settings. Install in Applications before enabling it. macOS may require approval in System Settings → General → Login Items. All other settings are in the popover: quota label style, each quota window, reset countdown visibility and format, TPS visibility, precision and suffix, and automatic refresh. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown still ticks once a minute.
+Launch at login is off until enabled in Settings. Install in Applications before enabling it. macOS may require approval in System Settings → General → Login Items. All other settings are grouped in the popover: appearance presets and typography, labels and visible metrics, refresh periods, and general settings. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown keeps ticking at the selected display period.
 
 ## Build and test
 
@@ -64,9 +64,16 @@ Quota reads launch the installed Codex executable's `app-server --help` first, s
 
 There is no login, reset-credit, turn, thread, tool or coding request. The child process uses the existing signed-in Codex account. CodexMeter never reads or stores authentication files/tokens. Analytics and OpenTelemetry exporters are disabled for this child with in-memory command arguments; Codex configuration and app files are not edited. The app itself has no HTTP client; the Codex subprocess performs its normal account/quota service traffic.
 
-The read-only query has a 15-second total timeout, bounded output and cancellation handling. Each query closes pipes, terminates the child and reaps it, escalating to SIGKILL only if it will not exit. It runs once at launch and every 180 seconds while automatic refresh is on, or on manual refresh. Queries never overlap. Countdown text updates locally every 60 seconds. Transient failures preserve the last valid quota, its timestamp and a stale marker. Recent local `rate_limits` snapshots are a fallback, always labeled cached and potentially outdated. Expired reset times do not manufacture replenished quota; the countdown says `now` until a fresh reading arrives.
+The read-only query has a 15-second total timeout, bounded output and cancellation handling. Each query closes pipes, terminates the child and reaps it, escalating to SIGKILL only if it will not exit. Quota reads run once at launch and every 180 seconds by default, or on manual refresh. The quota period can be set to 1, 3, 5, 10 or 15 minutes. Account statistics default to 15 minutes, with 5, 15, 30 and 60 minute choices. Each query type prevents overlapping requests. Local response checks support 1, 2, 5, 10 or 30 seconds; countdown text supports 15, 30 or 60 seconds. Period changes reschedule the timers immediately. Manually edited preferences retain minimum network periods of 60 seconds for quota and 300 seconds for account statistics. Transient failures preserve the last valid quota, its timestamp and a stale marker. Recent local `rate_limits` snapshots are a fallback, always labeled cached and potentially outdated. Expired reset times do not manufacture replenished quota; the countdown says `now` until a fresh reading arrives.
 
 Percentages are clamped to `max(0, min(100, 100 - usedPercent))`. Windows are selected by duration, 300 and 10080 minutes, regardless of primary/secondary order. The `codex` bucket is used when the multi-bucket API is available; unrelated model buckets are never merged.
+
+## Account token statistics
+
+`account/usage/read` supplies the same account-wide statistics exposed by the supported Codex account surface: lifetime tokens, peak daily tokens, current and longest streak, longest running turn, and per-date token totals. These are server account statistics, distinct from the latest response's TPS and local log history. The account query uses only `account/read` and `account/usage/read`, never inference or conversation APIs.
+
+Daily buckets retain the exact `YYYY-MM-DD` labels reported by Codex. Reporting may lag; the latest returned day is explicitly labeled and a missing current day is never shown as zero or silently substituted with the preceding day. All returned dates can be expanded. Null summary fields stay unavailable. Separate timestamps and stale indicators identify cached account statistics after failures or restart. Only the whitelisted counters, dates and plan label are retained; account email, account IDs, avatars and thread-level usage are not persisted.
+
 
 ## Remaining reset credits
 
@@ -93,9 +100,9 @@ Local timestamps describe persisted events rather than server-side token generat
 
 ## Incremental files and privacy
 
-The default roots are `~/.codex/sessions` and `~/.codex/archived_sessions`. File changes are checked about every two seconds. Directory listings are cached by modification time, cursors are keyed by device/inode so archival renames preserve progress, and only appended bytes are parsed. Startup backfill is newest-file-first and bounded per pass; large histories may take several passes. Partial final JSONL records wait for their newline. Individual unsupported records over 8 MiB invalidate their timing window instead of allocating unbounded memory. Checkpoints preserve only cursors, boundary timestamps, model names, opaque deduplication IDs and token/quota counters. Prompt/response text and incomplete line bodies are never saved or logged. File truncation/replacement resets its parser.
+The default roots are `~/.codex/sessions` and `~/.codex/archived_sessions`. File changes are checked every two seconds by default, with the period configurable in Settings. Directory listings are cached by modification time, cursors are keyed by device/inode so archival renames preserve progress, and only appended bytes are parsed. Startup backfill is newest-file-first and bounded per pass; large histories may take several passes. Partial final JSONL records wait for their newline. Individual unsupported records over 8 MiB invalidate their timing window instead of allocating unbounded memory. Checkpoints preserve only cursors, boundary timestamps, model names, opaque deduplication IDs and token/quota counters. Prompt/response text and incomplete line bodies are never saved or logged. File truncation/replacement resets its parser.
 
-Checkpoints are stored with private file permissions in `~/Library/Application Support/CodexMeter/`. Last valid quota and display preferences use UserDefaults. Nothing is uploaded by the app: no conversations, usage counters or project paths. There is no telemetry, updater, proxy, sync, cloud service or account switcher.
+Checkpoints are stored with private file permissions in `~/Library/Application Support/CodexMeter/`. Last valid quota, account statistics and display/refresh preferences use UserDefaults. Nothing is uploaded by the app: no conversations, usage counters or project paths. There is no telemetry, updater, proxy, sync, cloud service or account switcher.
 
 For custom CODEX_HOME, launch from a shell with the environment variable, or configure the persistent path for Finder launches:
 

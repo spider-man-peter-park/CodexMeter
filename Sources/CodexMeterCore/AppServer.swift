@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 
 public enum AppServerError: Error, LocalizedError, Sendable, Equatable {
-    case executableMissing, launchFailed, timeout, invalidResponse, notSignedIn, queryFailed, cancelled
+    case executableMissing, launchFailed, timeout, invalidResponse, notSignedIn, queryFailed, unsupportedMethod, cancelled
 
     public var errorDescription: String? {
         switch self {
@@ -12,7 +12,8 @@ public enum AppServerError: Error, LocalizedError, Sendable, Equatable {
         case .timeout: "Codex App Server timed out."
         case .invalidResponse: "Codex App Server returned an unsupported response."
         case .notSignedIn: "Sign in through Codex Desktop to read plan limits."
-        case .queryFailed: "Codex plan limits are temporarily unavailable."
+        case .queryFailed: "Codex account information is temporarily unavailable."
+        case .unsupportedMethod: "This version of Codex does not support the requested account query."
         case .cancelled: "Codex App Server query was cancelled."
         }
     }
@@ -33,6 +34,18 @@ public struct AppServerClient: Sendable {
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
                     do { continuation.resume(returning: try runner.run()) }
+                    catch { continuation.resume(throwing: error) }
+                }
+            }
+        } onCancel: { runner.cancel() }
+    }
+
+    public func readAccountInfo(codexHome: URL) async throws -> AccountInfoSnapshot {
+        let runner = AppServerRunner(executable: executable, codexHome: codexHome, timeout: timeout)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    do { continuation.resume(returning: try runner.runAccountInfo()) }
                     catch { continuation.resume(throwing: error) }
                 }
             }
@@ -88,7 +101,23 @@ private final class AppServerRunner: @unchecked Sendable {
         if ProcessInfo.processInfo.systemUptime >= deadline { throw AppServerError.timeout }
     }
 
+    private enum Query { case quota, accountInfo }
+    private enum QueryResult {
+        case quota(QuotaSnapshot)
+        case accountInfo(AccountInfoSnapshot)
+    }
+
     func run() throws -> QuotaSnapshot {
+        guard case .quota(let snapshot) = try run(query: .quota) else { throw AppServerError.invalidResponse }
+        return snapshot
+    }
+
+    func runAccountInfo() throws -> AccountInfoSnapshot {
+        guard case .accountInfo(let snapshot) = try run(query: .accountInfo) else { throw AppServerError.invalidResponse }
+        return snapshot
+    }
+
+    private func run(query: Query) throws -> QueryResult {
         guard let executable = executable ?? AppServerClient.discoverExecutable() else {
             throw AppServerError.executableMissing
         }
@@ -103,17 +132,28 @@ private final class AppServerRunner: @unchecked Sendable {
         defer { finish(process, input: input, output: output) }
         var buffer = Data()
         try send(["id": 1, "method": "initialize", "params": [
-            "clientInfo": ["name": "codexmeter", "title": "CodexMeter", "version": "0.2.0"]
+            "clientInfo": ["name": "codexmeter", "title": "CodexMeter", "version": "0.3.0"]
         ]], to: input)
         _ = try response(id: 1, process: process, output: output, buffer: &buffer, deadline: deadline)
         try send(["method": "initialized"], to: input)
         try send(["id": 2, "method": "account/read", "params": ["refreshToken": false]], to: input)
         let account = try response(id: 2, process: process, output: output, buffer: &buffer, deadline: deadline)
         guard account["account"] is [String: Any] else { throw AppServerError.notSignedIn }
-        try send(["id": 3, "method": "account/rateLimits/read"], to: input)
-        let limits = try response(id: 3, process: process, output: output, buffer: &buffer, deadline: deadline)
-        guard let snapshot = QuotaParser.parse(limits) else { throw AppServerError.invalidResponse }
-        return snapshot
+        switch query {
+        case .quota:
+            try send(["id": 3, "method": "account/rateLimits/read"], to: input)
+            let limits = try response(id: 3, process: process, output: output, buffer: &buffer, deadline: deadline)
+            guard let snapshot = QuotaParser.parse(limits) else { throw AppServerError.invalidResponse }
+            return .quota(snapshot)
+        case .accountInfo:
+            // Omitting threadId requests account-wide activity, not per-thread cost estimates.
+            try send(["id": 3, "method": "account/usage/read", "params": [:]], to: input)
+            let usage = try response(id: 3, process: process, output: output, buffer: &buffer, deadline: deadline)
+            guard let snapshot = AccountInfoParser.parse(account: account, usage: usage) else {
+                throw AppServerError.invalidResponse
+            }
+            return .accountInfo(snapshot)
+        }
     }
 
     private func launch(_ executable: URL, arguments: [String]) throws -> (Process, FileHandle, FileHandle) {
@@ -175,7 +215,10 @@ private final class AppServerRunner: @unchecked Sendable {
                     continue
                 }
                 guard (object["id"] as? NSNumber)?.intValue == id else { continue }
-                if object["error"] != nil { throw AppServerError.queryFailed }
+                if let error = object["error"] as? [String: Any] {
+                    if (error["code"] as? NSNumber)?.intValue == -32601 { throw AppServerError.unsupportedMethod }
+                    throw AppServerError.queryFailed
+                }
                 guard let result = object["result"] as? [String: Any] else { throw AppServerError.invalidResponse }
                 return result
             }

@@ -106,4 +106,107 @@ struct AppServerTests {
             Issue.record("Expected signed-out state")
         } catch { #expect(error as? AppServerError == .notSignedIn) }
     }
+
+    @Test func accountInfoUsesOnlyReadOnlyAccountWideUsageMethod() async throws {
+        let (directory, executable) = try fixture("""
+        methods = []
+        for line in sys.stdin:
+            request = json.loads(line)
+            methods.append(request['method'])
+            with open(os.path.join(os.path.dirname(__file__), 'methods.json'), 'w') as record:
+                json.dump(methods, record)
+            if request['method'] == 'initialize':
+                result = {}
+            elif request['method'] == 'initialized':
+                continue
+            elif request['method'] == 'account/read':
+                assert request['params']['refreshToken'] is False
+                result = {'account': {'type': 'chatgpt', 'planType': 'pro', 'email': 'PRIVATE_EMAIL'}}
+            elif request['method'] == 'account/usage/read':
+                assert request.get('params', {}) == {}
+                result = {'summary': {'lifetimeTokens': 12345678901, 'peakDailyTokens': None}, 'dailyUsageBuckets': [{'startDate': '2026-10-27', 'tokens': 25}]}
+            else:
+                raise RuntimeError('Unexpected method')
+            print(json.dumps({'id': request['id'], 'result': result}), flush=True)
+        """)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let snapshot = try await AppServerClient(executable: executable, timeout: 5).readAccountInfo(codexHome: directory)
+        #expect(snapshot.planType == "pro")
+        #expect(snapshot.summary?.lifetimeTokens == 12_345_678_901)
+        #expect(snapshot.summary?.peakDailyTokens == nil)
+        #expect(snapshot.latestDailyUsage?.tokens == 25)
+        let data = try Data(contentsOf: directory.appendingPathComponent("methods.json"))
+        #expect(try JSONSerialization.jsonObject(with: data) as? [String]
+            == ["initialize", "initialized", "account/read", "account/usage/read"])
+        let persisted = try #require(String(data: JSONEncoder().encode(snapshot), encoding: .utf8))
+        #expect(!persisted.contains("PRIVATE_EMAIL"))
+    }
+
+    @Test func unsupportedAccountUsageIsExplicitAndSanitized() async throws {
+        let (directory, executable) = try fixture("""
+        for line in sys.stdin:
+            request = json.loads(line)
+            if request['method'] == 'initialized':
+                continue
+            if request['method'] == 'account/usage/read':
+                print(json.dumps({'id': request['id'], 'error': {'code': -32601, 'message': 'PRIVATE_UNSUPPORTED_DETAIL'}}), flush=True)
+                continue
+            result = {'account': {'type': 'chatgpt'}} if request['method'] == 'account/read' else {}
+            print(json.dumps({'id': request['id'], 'result': result}), flush=True)
+        """)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        do {
+            _ = try await AppServerClient(executable: executable, timeout: 5).readAccountInfo(codexHome: directory)
+            Issue.record("Expected unsupported account usage")
+        } catch {
+            #expect(error as? AppServerError == .unsupportedMethod)
+            #expect(!error.localizedDescription.contains("PRIVATE_"))
+        }
+    }
+
+    @Test func accountUsageFailureDoesNotCreateZeroMetrics() async throws {
+        let (directory, executable) = try fixture("""
+        for line in sys.stdin:
+            request = json.loads(line)
+            if request['method'] == 'initialized':
+                continue
+            if request['method'] == 'account/usage/read':
+                print(json.dumps({'id': request['id'], 'error': {'code': -32000, 'message': 'PRIVATE_USAGE_DETAIL'}}), flush=True)
+                continue
+            result = {'account': {'type': 'chatgpt'}} if request['method'] == 'account/read' else {}
+            print(json.dumps({'id': request['id'], 'result': result}), flush=True)
+        """)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        do {
+            _ = try await AppServerClient(executable: executable, timeout: 5).readAccountInfo(codexHome: directory)
+            Issue.record("Expected a failed usage query")
+        } catch {
+            #expect(error as? AppServerError == .queryFailed)
+            #expect(!error.localizedDescription.contains("PRIVATE_"))
+        }
+    }
+
+    @Test func accountUsageTimeoutStillKillsAndReapsProcess() async throws {
+        let (directory, executable) = try fixture("""
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        for line in sys.stdin:
+            request = json.loads(line)
+            if request['method'] == 'initialized':
+                continue
+            if request['method'] == 'account/usage/read':
+                with open(os.path.join(os.path.dirname(__file__), 'pid'), 'w') as record:
+                    record.write(str(os.getpid()))
+                time.sleep(120)
+            result = {'account': {'type': 'chatgpt'}} if request['method'] == 'account/read' else {}
+            print(json.dumps({'id': request['id'], 'result': result}), flush=True)
+        """)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        do {
+            _ = try await AppServerClient(executable: executable, timeout: 1.5).readAccountInfo(codexHome: directory)
+            Issue.record("Expected an account usage timeout")
+        } catch { #expect(error as? AppServerError == .timeout) }
+        let pid = try #require(Int32(String(contentsOf: directory.appendingPathComponent("pid"), encoding: .utf8)))
+        #expect(kill(pid, 0) == -1)
+        #expect(errno == ESRCH)
+    }
 }

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var anchorMetric: MenuBarMetric?
     private let popover = NSPopover()
     private let model = AppModel()
+    private var appearanceObservation: NSKeyValueObservation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -18,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.sizingOptions = [.preferredContentSize]
         popover.contentViewController = controller
         model.changed = { [weak self] in self?.updateStatusItems() }
+        appearanceObservation = NSApplication.shared.observe(\.effectiveAppearance) { [weak self] _, _ in
+            Task { @MainActor in self?.updateStatusItems() }
+        }
         updateStatusItems()
         model.start()
         if CommandLine.arguments.contains("--show-popover") {
@@ -58,24 +62,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         for descriptor in descriptors {
             guard let button = statusItems[descriptor.metric]?.button else { continue }
-            let text = NSMutableAttributedString(string: descriptor.title, attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.labelColor
-            ])
             let window: QuotaWindow?
             switch descriptor.metric {
             case .fiveHour: window = model.quota?.fiveHour
             case .weekly: window = model.quota?.weekly
             default: window = nil
             }
-            if let window, window.remainingPercent <= 20 {
-                let range = (descriptor.title as NSString).range(of: "\(Int(window.remainingPercent.rounded()))%")
-                if range.location != NSNotFound {
-                    text.addAttribute(.foregroundColor,
-                        value: window.remainingPercent <= 10 ? NSColor.systemRed : NSColor.systemOrange, range: range)
-                }
+            if let item = statusItems[descriptor.metric] {
+                StatusItemAppearance.apply(descriptor, to: item, options: model.options, window: window)
             }
-            button.attributedTitle = text
             button.setAccessibilityLabel(descriptor.accessibilityLabel)
             button.setAccessibilityValue(descriptor.title)
             var tooltip = descriptor.accessibilityLabel + " · Click for details"
@@ -147,6 +142,7 @@ struct CodexMeterMain {
         var live = false
         do { quota = try await AppServerClient().readQuota(codexHome: home); live = true }
         catch { }
+        let accountInfo = try? await AppServerClient().readAccountInfo(codexHome: home)
         var output: [String: Any] = ["liveQuota": live]
         if let quota {
             var limits: [String: Any] = ["updatedAt": ISO8601DateFormatter().string(from: quota.updatedAt)]
@@ -168,6 +164,17 @@ struct CodexMeterMain {
                              "reasoningTokens": sample.reasoningTokens, "elapsedSeconds": sample.elapsedSeconds,
                              "completedAt": ISO8601DateFormatter().string(from: sample.completedAt),
                              "model": sample.model ?? "unknown", "estimated": sample.isEstimated]
+        }
+        if let accountInfo {
+            var account: [String: Any] = ["updatedAt": ISO8601DateFormatter().string(from: accountInfo.updatedAt),
+                "dailyBucketCount": accountInfo.dailyUsageBuckets?.count as Any? ?? NSNull()]
+            account["lifetimeTokens"] = accountInfo.summary?.lifetimeTokens
+            account["peakDailyTokens"] = accountInfo.summary?.peakDailyTokens
+            if let day = accountInfo.latestDailyUsage {
+                account["latestReportedDay"] = day.startDate
+                account["latestDailyTokens"] = day.tokens
+            }
+            output["accountUsage"] = account
         }
         output["menuItems"] = MenuBarFormatter.items(quota: quota, sample: logs.latestSample,
             options: AppModel().options).map { ["metric": $0.metric.rawValue, "title": $0.title] }

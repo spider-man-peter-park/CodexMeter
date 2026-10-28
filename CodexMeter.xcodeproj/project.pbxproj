@@ -6,15 +6,17 @@ E77B48CBB400E70AA69E4E8A = { isa = PBXFileReference; lastKnownFileType = sourcec
 E48A7F56C484FA19628EDC80 = { isa = PBXBuildFile; fileRef = E77B48CBB400E70AA69E4E8A; };
 7915E537A339303D78460354 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/CodexMeterApp/PopoverView.swift"; sourceTree = SOURCE_ROOT; };
 F4B17948723773B7C6533CE2 = { isa = PBXBuildFile; fileRef = 7915E537A339303D78460354; };
+768FF41E58864110EF433E4A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/CodexMeterApp/StatusItemAppearance.swift"; sourceTree = SOURCE_ROOT; };
+0959EE8700739AB60FE0DB5F = { isa = PBXBuildFile; fileRef = 768FF41E58864110EF433E4A; };
 38A007151ABE87CC01A5B6E9 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = CodexMeter.app; sourceTree = BUILT_PRODUCTS_DIR; };
 582681C2EAE02B3F3D399C0C = { isa = XCLocalSwiftPackageReference; relativePath = .; };
 05B4C13CEE8FCA4F3D850987 = { isa = XCSwiftPackageProductDependency; package = 582681C2EAE02B3F3D399C0C; productName = CodexMeterCore; };
 BBB71A8862302FEAD6B15FF1 = { isa = PBXBuildFile; productRef = 05B4C13CEE8FCA4F3D850987; };
-BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (57DA1A2E7110D59A9F0BB929,E48A7F56C484FA19628EDC80,F4B17948723773B7C6533CE2,); runOnlyForDeploymentPostprocessing = 0; };
+BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (57DA1A2E7110D59A9F0BB929,E48A7F56C484FA19628EDC80,F4B17948723773B7C6533CE2,0959EE8700739AB60FE0DB5F,); runOnlyForDeploymentPostprocessing = 0; };
 7561BFB015D8F536760CB671 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (BBB71A8862302FEAD6B15FF1,); runOnlyForDeploymentPostprocessing = 0; };
 0189424A5A60FED329FA868E = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 FBDC4F23F93125BBEEAE800C = { isa = PBXGroup; children = (38A007151ABE87CC01A5B6E9,); name = Products; sourceTree = "<group>"; };
-64292B1C2B2E13EAD8788FC8 = { isa = PBXGroup; children = (5798FC2804C5CEF8E61B73CD,E77B48CBB400E70AA69E4E8A,7915E537A339303D78460354,FBDC4F23F93125BBEEAE800C,); sourceTree = "<group>"; };
+64292B1C2B2E13EAD8788FC8 = { isa = PBXGroup; children = (5798FC2804C5CEF8E61B73CD,E77B48CBB400E70AA69E4E8A,7915E537A339303D78460354,768FF41E58864110EF433E4A,FBDC4F23F93125BBEEAE800C,); sourceTree = "<group>"; };
 AB52CB08E0FDF02BF6C67C33 = { isa = XCBuildConfiguration; buildSettings = { MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
 59E1BEE911F66DA37FEBACDC = { isa = XCBuildConfiguration; buildSettings = {
         PRODUCT_NAME = CodexMeter; PRODUCT_BUNDLE_IDENTIFIER = io.github.codexmeter.app;
