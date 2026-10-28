@@ -1,0 +1,21 @@
+name: macOS
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test-and-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: ./scripts/test.sh
+      - name: Build Xcode application
+        run: xcodebuild -project CodexMeter.xcodeproj -scheme CodexMeter -configuration Release -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build
+      - name: Build standalone application
+        run: ./scripts/build-app.sh
+      - name: Archive application
+        run: ditto -c -k --keepParent build/CodexMeter.app build/CodexMeter-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CodexMeter-macOS
+          path: build/CodexMeter-macOS.zip

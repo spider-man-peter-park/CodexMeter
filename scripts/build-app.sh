@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$PWD/.build/clang-cache}"
+export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-$PWD/.build/module-cache}"
+swift build -c release "$@"
+BIN_DIR="$(swift build -c release "$@" --show-bin-path)"
+STAGE="$(mktemp -d /private/tmp/codexmeter-app.XXXXXX)"
+trap 'rm -rf "$STAGE"' EXIT
+APP="$STAGE/CodexMeter.app"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BIN_DIR/CodexMeter" "$APP/Contents/MacOS/CodexMeter"
+cp Resources/Info.plist "$APP/Contents/Info.plist"
+/usr/bin/xattr -cr "$APP"
+/usr/bin/codesign --force --sign - "$APP"
+/usr/bin/codesign --verify --strict "$APP"
+OUTPUT_DIR="${CODEXMETER_OUTPUT_DIR:-$PWD/build}"
+mkdir -p "$OUTPUT_DIR"
+/usr/bin/ditto --norsrc "$APP" "$OUTPUT_DIR/CodexMeter.app"
+/usr/bin/codesign --verify --strict "$OUTPUT_DIR/CodexMeter.app"
+printf 'Built %s\n' "$OUTPUT_DIR/CodexMeter.app"
