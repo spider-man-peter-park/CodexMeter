@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var installedLanguage: AppLanguage?
     private var statusItems: [MenuBarMetric: NSStatusItem] = [:]
     private var anchorMetric: MenuBarMetric?
+    private var contextMenuMetric: MenuBarMetric?
     private let popover = NSPopover()
     private let model = AppModel()
     private let updates = AppUpdates()
@@ -93,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private var firstButton: NSStatusBarButton? {
-        [MenuBarMetric.tps, .weekly, .fiveHour, .fallback].compactMap { statusItems[$0]?.button }.first
+        [MenuBarMetric.tps, .todayTokens, .weekly, .fiveHour, .fallback].compactMap { statusItems[$0]?.button }.first
     }
 
     private func updateStatusItems() {
@@ -103,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             settingsController?.window?.title = L10n.text("CodexMeter Settings")
         }
         let descriptors = MenuBarFormatter.items(quota: model.quota, sample: model.sample,
-            options: model.options, now: model.now, stale: model.quotaWarning != nil)
+            options: model.options, todayUsage: model.localDayUsage, now: model.now, stale: model.quotaWarning != nil)
         let needed = Set(descriptors.map(\.metric))
         let reanchor = (popover.isShown || popoverRequested)
             && (anchorMetric.map { !needed.contains($0) } ?? false)
@@ -134,7 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             if let item = statusItems[descriptor.metric] {
                 StatusItemAppearance.apply(descriptor, to: item, options: model.options, window: window,
-                                           isActive: popover.isShown && anchorMetric == descriptor.metric)
+                                           isActive: (popover.isShown && anchorMetric == descriptor.metric)
+                                               || contextMenuMetric == descriptor.metric)
             }
             button.setAccessibilityLabel(descriptor.accessibilityLabel)
             button.setAccessibilityValue(descriptor.title)
@@ -142,6 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             if descriptor.metric == .tps {
                 if let sample = model.sample { tooltip += L10n.text("\nResponse completed: \(sample.completedAt.formatted(.dateTime.locale(L10n.locale)))") }
                 if model.latestUnmeasurable { tooltip += L10n.text("\nShowing the last response with reliable timing") }
+            } else if descriptor.metric == .todayTokens {
+                tooltip += "\n" + L10n.text("Desktop logs and linked subagents, by usage-record time. Other-device or cloud activity without local records is not covered. Separate from account daily totals.")
             } else if let quota = model.quota {
                 tooltip += L10n.text("\nQuota updated: \(quota.updatedAt.formatted(.dateTime.locale(L10n.locale)))")
                 if let reset = window?.resetsAt { tooltip += L10n.text("\nResets: \(reset.formatted(.dateTime.locale(L10n.locale)))") }
@@ -160,6 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.refresh()
         if let event = NSApp.currentEvent, event.type == .rightMouseUp {
             dismissPopover()
+            contextMenuMetric = MenuBarMetric.allCases[sender.tag]
+            updateStatusItems()
+            defer { contextMenuMetric = nil; updateStatusItems() }
             NSMenu.popUpContextMenu(makeActionMenu(), with: event, for: sender)
             return
         }
@@ -332,6 +339,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 @main
 struct CodexMeterMain {
     @MainActor static func main() {
+        if CommandLine.arguments.contains("--verify-resources") {
+            guard let coreURL = Bundle.main.url(forResource: "CodexMeter_CodexMeterCore", withExtension: "bundle"),
+                  L10n.resourceBundleURL.standardizedFileURL == coreURL.standardizedFileURL,
+                  L10n.text("Settings", language: .english) == "Settings",
+                  L10n.text("Settings", language: .simplifiedChinese) == "设置",
+                  let appURL = Bundle.main.url(forResource: "CodexMeter_CodexMeterApp", withExtension: "bundle"),
+                  let assets = Bundle(url: appURL),
+                  assets.url(forResource: "OpenAIBlossomBlack", withExtension: "png") != nil,
+                  assets.url(forResource: "OpenAIBlossomWhite", withExtension: "png") != nil,
+                  Bundle.main.url(forResource: "AppIcon", withExtension: "icns") != nil else {
+                fputs("Packaged resource verification failed.\n", stderr)
+                exit(1)
+            }
+            print("Packaged localization and artwork verified.")
+            return
+        }
         if CommandLine.arguments.contains("--unregister-login-item") {
             do {
                 if SMAppService.mainApp.status != .notRegistered { try SMAppService.mainApp.unregister() }
@@ -413,7 +436,7 @@ struct CodexMeterMain {
             output["accountUsage"] = account
         }
         output["menuItems"] = MenuBarFormatter.items(quota: quota, sample: logs.latestSample,
-            options: AppModel().options).map { ["metric": $0.metric.rawValue, "title": $0.title] }
+            options: AppModel().options, todayUsage: logs.todayUsage).map { ["metric": $0.metric.rawValue, "title": $0.title] }
         if let encoded = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .prettyPrinted]),
            let text = String(data: encoded, encoding: .utf8) { print(text) }
     }

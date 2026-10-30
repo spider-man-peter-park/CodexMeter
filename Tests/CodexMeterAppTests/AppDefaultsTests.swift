@@ -72,4 +72,33 @@ import Testing
         #expect(migrated.options.quotaLabelStyle == .ai)
         #expect(defaults.integer(forKey: "displaySchemaVersion") == 2)
     }
+
+    @Test func todayTokenVisibilityDefaultsOnAndPersistsIndependently() throws {
+        let (suite, defaults) = try preferences()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        #expect(first.options.showTodayTokens)
+        let original = first.options
+        first.options.showTodayTokens = false
+        let restarted = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        var expected = original
+        expected.showTodayTokens = false
+        #expect(restarted.options == expected)
+        restarted.options.showTodayTokens = true
+        #expect(AppModel(defaults: defaults, notificationCenter: TestReminderCenter()).options == original)
+    }
+
+    @Test func tpsIconVisibilityDefaultsOnAndPersistsWithoutChangingOtherOptions() throws {
+        let (suite, defaults) = try preferences()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        #expect(first.options.showTPSIcon)
+        let original = first.options
+        first.options.showTPSIcon = false
+        var expected = original
+        expected.showTPSIcon = false
+        #expect(AppModel(defaults: defaults, notificationCenter: TestReminderCenter()).options == expected)
+        first.options.showTPSIcon = true
+        #expect(AppModel(defaults: defaults, notificationCenter: TestReminderCenter()).options == original)
+    }
 }

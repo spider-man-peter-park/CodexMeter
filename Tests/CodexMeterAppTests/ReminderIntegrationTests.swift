@@ -55,6 +55,29 @@ actor TestReminderCenter: ReminderNotificationCenter {
         reminders.stop()
     }
 
+    @Test func unsupportedFiveHourWindowCancelsOnlyItsPendingAlertsWithoutPrompting() async throws {
+        let defaults = try defaults()
+        defer { defaults.removePersistentDomain(forName: defaults.string(forKey: "testSuiteName")!) }
+        let center = TestReminderCenter()
+        let reminders = AppReminders(defaults: defaults, scope: "test", center: center)
+        var options = reminders.options
+        options.lowQuotaEnabled = true
+        reminders.setOptions(options)
+        try await settle()
+        let prefix = "io.github.codexmeter.reminders.test.quota."
+        for window in ["fiveHour", "weekly"] {
+            try await center.add(ReminderRequest(id: prefix + window + ".cycle.low.10", kind: .lowQuota,
+                title: "Test", body: "Test", deliveryAt: Date().addingTimeInterval(3600), acknowledgementKeys: []))
+        }
+        reminders.start()
+        reminders.setFiveHourAvailable(false)
+        try await settle()
+        #expect(await center.pending == [prefix + "weekly.cycle.low.10"])
+        #expect(await center.prompts == 0)
+        #expect(!reminders.options.fiveHourEnabled && reminders.options.weeklyEnabled)
+        reminders.stop()
+    }
+
     @Test func nativeCardTriggerPreservesAbsoluteDeadlineWithoutPrivatePayload() throws {
         let time = Date()
         let expiry = time.addingTimeInterval(5 * 86400)

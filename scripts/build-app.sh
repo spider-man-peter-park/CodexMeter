@@ -19,6 +19,18 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 /usr/bin/codesign --verify --strict "$APP"
 OUTPUT_DIR="${CODEXMETER_OUTPUT_DIR:-$PWD/build}"
 mkdir -p "$OUTPUT_DIR"
-/usr/bin/ditto --norsrc "$APP" "$OUTPUT_DIR/CodexMeter.app"
-/usr/bin/codesign --verify --strict "$OUTPUT_DIR/CodexMeter.app"
+DEST_APP="$OUTPUT_DIR/CodexMeter.app"
+PREVIOUS_APP="$STAGE/Previous.app"
+if [[ -e "$DEST_APP" ]]; then
+    mv "$DEST_APP" "$PREVIOUS_APP"
+fi
+if ! /usr/bin/ditto --norsrc "$APP" "$DEST_APP" \
+    || ! /usr/bin/codesign --verify --strict "$DEST_APP" \
+    || ! "$DEST_APP/Contents/MacOS/CodexMeter" --verify-resources; then
+    rm -rf "$DEST_APP"
+    if [[ -e "$PREVIOUS_APP" ]]; then
+        mv "$PREVIOUS_APP" "$DEST_APP"
+    fi
+    exit 1
+fi
 printf 'Built %s\n' "$OUTPUT_DIR/CodexMeter.app"

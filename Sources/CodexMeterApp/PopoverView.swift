@@ -228,24 +228,18 @@ struct PopoverView: View {
 
     private var localTodaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle(L10n.text("Today · this Mac"), symbol: "sun.max")
+            sectionTitle(L10n.text("Today · this Mac"), symbol: DetailSection.today.symbol)
                 .help(model.localDayUsage?.isPartial == true
                     ? L10n.text("Partial estimate: some usage records could not be counted safely.")
                     : L10n.text("Desktop logs and linked subagents, by usage-record time. Other-device or cloud activity without local records is not covered. Separate from account daily totals."))
             if let usage = model.localDayUsage, usage.matches(model.now) {
                 if usage.hasDesktopLogs && (usage.logsAvailable || usage.responses > 0) {
-                    let counted = usage.responses > 0 || (!usage.isBackfilling && !usage.isPartial)
                     HStack(alignment: .firstTextBaseline) {
-                        Text(counted ? TokenCountFormatter.compact(usage.total) : "—")
+                        Text(TokenCountFormatter.compact(usage.displayTotal(at: model.now)))
                             .font(MeterStyle.numberFont).monospacedDigit()
                         Text(L10n.text("tokens")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
                         Spacer()
                         Text(L10n.text("\(usage.responses) usage records")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        metric(L10n.text("Input"), value: TokenCountFormatter.compact(counted ? usage.input : nil))
-                        Spacer()
-                        metric(L10n.text("Output"), value: TokenCountFormatter.compact(counted ? usage.output : nil))
                     }
                 } else {
                     Text(usage.isBackfilling ? L10n.text("Counting today's local usage…") : L10n.text("No readable, supported Desktop usage is available."))

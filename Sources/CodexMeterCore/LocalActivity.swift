@@ -152,6 +152,11 @@ public struct LocalDayUsage: Sendable, Equatable {
     public func matches(_ date: Date, calendar: Calendar = .current) -> Bool {
         dayStart == calendar.startOfDay(for: date) && timeZoneIdentifier == calendar.timeZone.identifier
     }
+    public func displayTotal(at date: Date, calendar: Calendar = .current) -> Int? {
+        guard matches(date, calendar: calendar), hasDesktopLogs, logsAvailable || responses > 0,
+              responses > 0 || (!isBackfilling && !isPartial) else { return nil }
+        return total
+    }
 }
 
 struct LocalActivityState: Codable, Sendable {

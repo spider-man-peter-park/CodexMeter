@@ -36,7 +36,59 @@ import Testing
     }
 
     private func isFilled(_ style: MenuBarItemStyle, active: Bool) -> Bool {
-        style == .capsule || (style == .activeCapsule && active)
+        style == .capsule && !active
+    }
+
+    private func marginAlpha(_ image: NSImage) throws -> CGFloat {
+        let bytes = try #require(image.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: bytes))
+        let x = Int(2 * CGFloat(bitmap.pixelsWide) / image.size.width)
+        return try #require(bitmap.colorAt(x: x, y: bitmap.pixelsHigh / 2)).alphaComponent
+    }
+
+    @Test func selectedQuotaAndTPSImagesHaveTransparentMarginsAndNativeTemplateContrast() throws {
+        for dark in [false, true] {
+            for metric in [MenuBarMetric.weekly, .tps, .todayTokens] {
+                let descriptor = MenuBarItem(metric: metric, title: metric == .weekly ? "70% · 5d0h" : "59 TPS",
+                    accessibilityLabel: "Menu item", symbolName: metric == .todayTokens ? DetailSection.today.symbol : (metric == .tps ? "bolt.fill" : nil),
+                    usesGPTLogo: metric == .weekly,
+                    tpsValue: metric == .tps ? "59" : nil)
+                for style in MenuBarItemStyle.allCases {
+                    for color in MenuBarColorStyle.allCases {
+                        for remaining in [5.0, 70.0] {
+                            for layout in MenuBarTPSLayout.allCases {
+                                let options = DisplayOptions(tpsLayout: layout, colorStyle: color, itemStyle: style)
+                                let image = StatusItemAppearance.makeImage(descriptor, options: options,
+                                    remaining: remaining, appearance: try appearance(dark), isActive: true)
+                                try assertRenderable(image, descriptor: descriptor, template: true)
+                                #expect(try marginAlpha(image) < 0.01)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func permanentCapsulesReturnAfterSelectionWithoutMovingTheStatusItem() throws {
+        for dark in [false, true] {
+            for metric in [MenuBarMetric.weekly, .tps, .todayTokens] {
+                let descriptor = MenuBarItem(metric: metric, title: "70% · 5d0h", accessibilityLabel: "Menu item",
+                    symbolName: metric == .tps ? "bolt.fill" : nil,
+                    tpsValue: metric == .tps ? "59" : nil)
+                for style in MenuBarItemStyle.allCases {
+                    let options = DisplayOptions(tpsLayout: .stacked, itemStyle: style)
+                    let idle = StatusItemAppearance.makeImage(descriptor, options: options, remaining: 70,
+                        appearance: try appearance(dark), isActive: false)
+                    let selected = StatusItemAppearance.makeImage(descriptor, options: options, remaining: 70,
+                        appearance: try appearance(dark), isActive: true)
+                    #expect(idle.size == selected.size)
+                    #expect(try marginAlpha(selected) < 0.01)
+                    if style == .capsule { #expect(try marginAlpha(idle) > 0.95) }
+                    else { #expect(try marginAlpha(idle) < 0.01) }
+                }
+            }
+        }
     }
 
     @Test func quotaLabelsRenderAtBothFontBoundsInBothAppearances() throws {
@@ -75,9 +127,9 @@ import Testing
                 for active in [false, true] {
                     for size in [9.0, 16.0] {
                         for layout in MenuBarTPSLayout.allCases {
-                            for showLabel in [false, true] {
+                            for (showLabel, showIcon) in [(false, false), (false, true), (true, false), (true, true)] {
                                 let options = DisplayOptions(showFiveHour: false, showWeekly: false,
-                                    tpsDecimals: 1, showTPSLabel: showLabel, tpsLayout: layout,
+                                    tpsDecimals: 1, showTPSLabel: showLabel, showTPSIcon: showIcon, tpsLayout: layout,
                                     fontSize: size, colorStyle: .monochrome, itemStyle: style)
                                 let descriptor = try #require(MenuBarFormatter.items(quota: nil, sample: sample,
                                     options: options, now: now).first)
@@ -110,6 +162,47 @@ import Testing
         }
     }
 
+    @Test func todayTokensRenderWithTheirSymbolAtBothFontBounds() throws {
+        #expect(NSImage(systemSymbolName: DetailSection.today.symbol, accessibilityDescription: nil) != nil)
+        for dark in [false, true] {
+            for style in MenuBarItemStyle.allCases {
+                for active in [false, true] {
+                    for size in [9.0, 16.0] {
+                        for value in ["—", "0", "69.2M", TokenCountFormatter.compact(Int.max)] {
+                            let descriptor = MenuBarItem(metric: .todayTokens, title: value,
+                                accessibilityLabel: "Today's local tokens", symbolName: DetailSection.today.symbol)
+                            let options = DisplayOptions(fontSize: size, colorStyle: .monochrome, itemStyle: style)
+                            let image = StatusItemAppearance.makeImage(descriptor, options: options, remaining: nil,
+                                appearance: try appearance(dark), isActive: active)
+                            try assertRenderable(image, descriptor: descriptor, template: !isFilled(style, active: active))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func lightningAddsAVisibleSymbolToInlineAndStackedTPS() throws {
+        #expect(NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil) != nil)
+        for dark in [false, true] {
+            for layout in MenuBarTPSLayout.allCases {
+                for showLabel in [false, true] {
+                    let options = DisplayOptions(showTPSLabel: showLabel, tpsLayout: layout, colorStyle: .monochrome)
+                    let plain = MenuBarItem(metric: .tps, title: showLabel ? "59 TPS" : "59",
+                        accessibilityLabel: "Response speed", tpsValue: "59")
+                    let lightning = MenuBarItem(metric: .tps, title: plain.title, accessibilityLabel: plain.accessibilityLabel,
+                        symbolName: "bolt.fill", tpsValue: "59")
+                    let withoutIcon = StatusItemAppearance.makeImage(plain, options: options, remaining: nil,
+                        appearance: try appearance(dark))
+                    let withIcon = StatusItemAppearance.makeImage(lightning, options: options, remaining: nil,
+                        appearance: try appearance(dark))
+                    #expect(withIcon.size.width > withoutIcon.size.width + 4)
+                    try assertRenderable(withIcon, descriptor: lightning, template: true)
+                }
+            }
+        }
+    }
+
     @Test func optionalExportsAreRawRendererPreviewsNotSystemScreenshots() throws {
         guard let path = ProcessInfo.processInfo.environment["CODEXMETER_UI_REVIEW_DIR"], !path.isEmpty else { return }
         let directory = URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("menu-renderer", isDirectory: true)
@@ -120,18 +213,29 @@ import Testing
             let nativeAppearance = try appearance(dark)
             for active in [false, true] {
                 for layout in MenuBarTPSLayout.allCases {
-                    let options = DisplayOptions(showFiveHour: false, showWeekly: false,
-                        tpsDecimals: 1, tpsLayout: layout, colorStyle: .monochrome, itemStyle: .activeCapsule)
-                    let descriptor = try #require(MenuBarFormatter.items(quota: nil, sample: sample,
-                        options: options, now: now).first)
-                    let image = StatusItemAppearance.makeImage(descriptor, options: options,
-                        remaining: nil, appearance: nativeAppearance, isActive: active)
-                    let bytes = try #require(image.tiffRepresentation)
-                    let bitmap = try #require(NSBitmapImageRep(data: bytes))
-                    let png = try #require(bitmap.representation(using: .png, properties: [:]))
-                    let name = "renderer-\(dark ? "dark" : "light")-\(active ? "open" : "closed")-tps-\(layout.rawValue).png"
-                    try png.write(to: directory.appendingPathComponent(name), options: .atomic)
+                    for showIcon in [false, true] {
+                        let options = DisplayOptions(showFiveHour: false, showWeekly: false,
+                            tpsDecimals: 1, showTPSIcon: showIcon, tpsLayout: layout,
+                            colorStyle: .monochrome, itemStyle: .activeCapsule)
+                        let descriptor = try #require(MenuBarFormatter.items(quota: nil, sample: sample,
+                            options: options, now: now).first)
+                        let image = StatusItemAppearance.makeImage(descriptor, options: options,
+                            remaining: nil, appearance: nativeAppearance, isActive: active)
+                        let bytes = try #require(image.tiffRepresentation)
+                        let bitmap = try #require(NSBitmapImageRep(data: bytes))
+                        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+                        let name = "renderer-\(dark ? "dark" : "light")-\(active ? "open" : "closed")-tps-\(layout.rawValue)-icon-\(showIcon ? "on" : "off").png"
+                        try png.write(to: directory.appendingPathComponent(name), options: .atomic)
+                    }
                 }
+                let descriptor = MenuBarItem(metric: .todayTokens, title: "69.2M",
+                    accessibilityLabel: "Today's local tokens", symbolName: DetailSection.today.symbol)
+                let image = StatusItemAppearance.makeImage(descriptor, options: AppDefaults.display,
+                    remaining: nil, appearance: nativeAppearance, isActive: active)
+                let bytes = try #require(image.tiffRepresentation)
+                let bitmap = try #require(NSBitmapImageRep(data: bytes))
+                let png = try #require(bitmap.representation(using: .png, properties: [:]))
+                try png.write(to: directory.appendingPathComponent("renderer-\(dark ? "dark" : "light")-\(active ? "open" : "closed")-tokens-stacked-squares.png"), options: .atomic)
             }
         }
     }

@@ -73,6 +73,7 @@ final class SystemReminderCenter: NSObject, ReminderNotificationCenter, UNUserNo
     private var generation = 0
     private var processedRevision = -1
     private var started = false
+    private var fiveHourAvailable = true
 
     init(defaults: UserDefaults = .standard, scope: String, center: any ReminderNotificationCenter = SystemReminderCenter()) {
         self.defaults = defaults
@@ -96,6 +97,8 @@ final class SystemReminderCenter: NSObject, ReminderNotificationCenter, UNUserNo
     func refreshAuthorization() { reconcile() }
 
     func setOptions(_ value: ReminderOptions) {
+        var value = value
+        if !fiveHourAvailable { value.fiveHourEnabled = false }
         generation += 1
         if (!options.recoveryEnabled && value.recoveryEnabled)
             || options.fiveHourEnabled != value.fiveHourEnabled || options.weeklyEnabled != value.weeklyEnabled
@@ -104,6 +107,16 @@ final class SystemReminderCenter: NSObject, ReminderNotificationCenter, UNUserNo
         if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: "reminderOptions") }
         saveState()
         if value.anyEnabled { requestPermissionIfNeeded() }
+        reconcile()
+    }
+
+    func setFiveHourAvailable(_ available: Bool) {
+        fiveHourAvailable = available
+        guard !available, options.fiveHourEnabled else { return }
+        generation += 1
+        options.fiveHourEnabled = false
+        if let data = try? JSONEncoder().encode(options) { defaults.set(data, forKey: "reminderOptions") }
+        // Automatic capability updates never request permission or reset weekly recovery tracking.
         reconcile()
     }
 

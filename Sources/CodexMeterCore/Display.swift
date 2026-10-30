@@ -1,7 +1,7 @@
 import Foundation
 
 public enum MenuBarMetric: String, Codable, CaseIterable, Hashable, Sendable {
-    case fiveHour, weekly, tps, fallback
+    case fiveHour, weekly, tps, todayTokens, fallback
 }
 
 public enum QuotaLabelStyle: String, Codable, CaseIterable, Sendable {
@@ -49,10 +49,12 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
     public var showWeekly: Bool
     public var showCountdown: Bool
     public var showTPS: Bool
+    public var showTodayTokens: Bool
     public var quotaLabelStyle: QuotaLabelStyle
     public var countdownStyle: CountdownStyle
     public var tpsDecimals: Int
     public var showTPSLabel: Bool
+    public var showTPSIcon: Bool
     public var tpsLayout: MenuBarTPSLayout
     public var fontSize: Double
     public var fontWeight: MenuBarFontWeight
@@ -81,9 +83,10 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
     }
 
     public init(fullMode: Bool = false, showFiveHour: Bool = true, showWeekly: Bool = true,
-                showCountdown: Bool = true, showTPS: Bool = true,
+                showCountdown: Bool = true, showTPS: Bool = true, showTodayTokens: Bool = true,
                 quotaLabelStyle: QuotaLabelStyle = .ai, countdownStyle: CountdownStyle = .compact,
-                tpsDecimals: Int = 0, showTPSLabel: Bool = true, tpsLayout: MenuBarTPSLayout = .inline,
+                tpsDecimals: Int = 0, showTPSLabel: Bool = true, showTPSIcon: Bool = true,
+                tpsLayout: MenuBarTPSLayout = .inline,
                 fontSize: Double = 12, fontWeight: MenuBarFontWeight = .semibold,
                 fontDesign: MenuBarFontDesign = .system, colorStyle: MenuBarColorStyle = .adaptive,
                 itemStyle: MenuBarItemStyle = .activeCapsule, spacing: MenuBarSpacing = .comfortable,
@@ -94,10 +97,12 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
         self.showWeekly = showWeekly
         self.showCountdown = showCountdown
         self.showTPS = showTPS
+        self.showTodayTokens = showTodayTokens
         self.quotaLabelStyle = quotaLabelStyle
         self.countdownStyle = countdownStyle
         self.tpsDecimals = tpsDecimals
         self.showTPSLabel = showTPSLabel
+        self.showTPSIcon = showTPSIcon
         self.tpsLayout = tpsLayout
         self.fontSize = fontSize
         self.fontWeight = fontWeight
@@ -111,8 +116,8 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case fullMode, showFiveHour, showWeekly, showCountdown, showTPS
-        case quotaLabelStyle, countdownStyle, tpsDecimals, showTPSLabel, tpsLayout
+        case fullMode, showFiveHour, showWeekly, showCountdown, showTPS, showTodayTokens
+        case quotaLabelStyle, countdownStyle, tpsDecimals, showTPSLabel, showTPSIcon, tpsLayout
         case fontSize, fontWeight, fontDesign, colorStyle, itemStyle, spacing
         case customQuotaLabel, showPercentSign, countdownSeparator
     }
@@ -124,10 +129,12 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
         showWeekly = try values.decodeIfPresent(Bool.self, forKey: .showWeekly) ?? true
         showCountdown = try values.decodeIfPresent(Bool.self, forKey: .showCountdown) ?? true
         showTPS = try values.decodeIfPresent(Bool.self, forKey: .showTPS) ?? true
+        showTodayTokens = try values.decodeIfPresent(Bool.self, forKey: .showTodayTokens) ?? true
         quotaLabelStyle = try values.decodeIfPresent(QuotaLabelStyle.self, forKey: .quotaLabelStyle) ?? .ai
         countdownStyle = try values.decodeIfPresent(CountdownStyle.self, forKey: .countdownStyle) ?? .compact
         tpsDecimals = try values.decodeIfPresent(Int.self, forKey: .tpsDecimals) ?? 0
         showTPSLabel = try values.decodeIfPresent(Bool.self, forKey: .showTPSLabel) ?? true
+        showTPSIcon = try values.decodeIfPresent(Bool.self, forKey: .showTPSIcon) ?? true
         tpsLayout = try values.decodeIfPresent(MenuBarTPSLayout.self, forKey: .tpsLayout) ?? .inline
         fontSize = try values.decodeIfPresent(Double.self, forKey: .fontSize) ?? 12
         fontWeight = try values.decodeIfPresent(MenuBarFontWeight.self, forKey: .fontWeight) ?? .semibold
@@ -183,7 +190,8 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
 
 public enum MenuBarFormatter {
     public static func items(quota: QuotaSnapshot?, sample: TPSSample?, options: DisplayOptions,
-                             now: Date = Date(), stale: Bool = false) -> [MenuBarItem] {
+                             todayUsage: LocalDayUsage? = nil, now: Date = Date(), stale: Bool = false,
+                             calendar: Calendar = .current) -> [MenuBarItem] {
         var result: [MenuBarItem] = []
         let isCached = quota.map { stale || $0.source == .logCache || $0.isStale } ?? false
         func window(_ metric: MenuBarMetric, _ value: QuotaWindow?) -> MenuBarItem {
@@ -228,7 +236,25 @@ public enum MenuBarFormatter {
             let value = sample.map { String(format: "%.*f", precision, $0.tokensPerSecond) } ?? "—"
             result.append(MenuBarItem(metric: .tps, title: value + (options.showTPSLabel ? " TPS" : ""),
                                       accessibilityLabel: sample == nil ? L10n.text("Latest response speed unavailable") :
-                                        L10n.text("Latest completed response, \(value) effective tokens per second"), tpsValue: value))
+                                        L10n.text("Latest completed response, \(value) effective tokens per second"),
+                                      symbolName: options.showTPSIcon ? "bolt.fill" : nil, tpsValue: value))
+        }
+        if options.showTodayTokens {
+            let total = todayUsage?.displayTotal(at: now, calendar: calendar)
+            var accessibility = L10n.text("Today · this Mac")
+            if let total {
+                accessibility += L10n.text(", \(total.formatted(.number.locale(L10n.locale))) tokens, local estimate")
+                if todayUsage?.isPartial == true {
+                    accessibility += ". " + L10n.text("Partial estimate: some usage records could not be counted safely.")
+                }
+            } else {
+                accessibility += L10n.text(", data unavailable")
+            }
+            if todayUsage?.matches(now, calendar: calendar) == true, todayUsage?.isBackfilling == true {
+                accessibility += ". " + L10n.text("Backfilling today's logs…")
+            }
+            result.append(MenuBarItem(metric: .todayTokens, title: TokenCountFormatter.compact(total),
+                                      accessibilityLabel: accessibility, symbolName: DetailSection.today.symbol))
         }
         return result.isEmpty ? [MenuBarItem(metric: .fallback, title: "AI", accessibilityLabel: L10n.text("CodexMeter, open details"),
                                             symbolName: options.quotaLabelStyle == .icon ? "sparkles" : nil,
@@ -236,8 +262,9 @@ public enum MenuBarFormatter {
     }
 
     public static func title(quota: QuotaSnapshot?, sample: TPSSample?, options: DisplayOptions,
-                             now: Date = Date(), stale: Bool = false) -> String {
-        items(quota: quota, sample: sample, options: options, now: now, stale: stale).map(\.title).joined(separator: " | ")
+                             todayUsage: LocalDayUsage? = nil, now: Date = Date(), stale: Bool = false) -> String {
+        items(quota: quota, sample: sample, options: options, todayUsage: todayUsage, now: now, stale: stale)
+            .map(\.title).joined(separator: " | ")
     }
 
     public static func countdown(until reset: Date?, now: Date = Date(), style: CountdownStyle = .compact) -> String {

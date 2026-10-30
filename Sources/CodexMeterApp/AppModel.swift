@@ -7,8 +7,12 @@ import SwiftUI
 @MainActor
 final class AppModel: ObservableObject {
     @Published var quota: QuotaSnapshot? {
-        didSet { store(quota, forKey: quotaCacheKey) }
+        didSet {
+            store(quota, forKey: quotaCacheKey)
+            updateFiveHourAvailability(from: quota)
+        }
     }
+    @Published private(set) var fiveHourAvailable: Bool?
     @Published var accountInfo: AccountInfoSnapshot? {
         didSet {
             store(accountInfo, forKey: accountCacheKey)
@@ -32,7 +36,11 @@ final class AppModel: ObservableObject {
     @Published var loginWarning: String?
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
     @Published var options: DisplayOptions {
-        didSet { saveDisplayOptions(); changed?() }
+        didSet {
+            if fiveHourAvailable == false && options.showFiveHour { options.showFiveHour = false }
+            saveDisplayOptions()
+            changed?()
+        }
     }
     @Published var detailLayout: DetailLayout {
         didSet { store(detailLayout, forKey: "detailLayout"); changed?() }
@@ -59,6 +67,7 @@ final class AppModel: ObservableObject {
     private let defaults: UserDefaults
     private let homeKey: String
     private let quotaCacheKey: String
+    private let fiveHourAvailabilityKey: String
     private let accountCacheKey: String
     private let monitor: LogMonitor
     private var timers: [Timer] = []
@@ -113,14 +122,9 @@ final class AppModel: ObservableObject {
         homeKey = String(hash, radix: 16)
         reminders = AppReminders(defaults: defaults, scope: homeKey, center: notificationCenter)
         quotaCacheKey = "lastValidQuota." + homeKey
+        fiveHourAvailabilityKey = "fiveHourAvailable." + homeKey
         accountCacheKey = "lastValidAccountInfo." + homeKey
         let display = AppDefaults.display
-        defaults.register(defaults: ["showFiveHour": display.showFiveHour, "showWeekly": display.showWeekly,
-                                     "showCountdown": display.showCountdown, "showTPS": display.showTPS,
-                                     "fullMode": display.fullMode, "autoRefresh": AppDefaults.autoRefresh,
-                                     "quotaLabelStyle": display.quotaLabelStyle.rawValue,
-                                     "countdownStyle": display.countdownStyle.rawValue,
-                                     "tpsDecimals": display.tpsDecimals, "showTPSLabel": display.showTPSLabel])
         if hasLegacyDisplay && defaults.integer(forKey: "displaySchemaVersion") < 2 {
             defaults.set("ai", forKey: "quotaLabelStyle")
             defaults.set(true, forKey: "showCountdown")
@@ -133,22 +137,22 @@ final class AppModel: ObservableObject {
             options = saved
         } else {
             var migrated = display
-            migrated.fullMode = defaults.bool(forKey: "fullMode")
-            migrated.showFiveHour = defaults.bool(forKey: "showFiveHour")
-            migrated.showWeekly = defaults.bool(forKey: "showWeekly")
-            migrated.showCountdown = defaults.bool(forKey: "showCountdown")
-            migrated.showTPS = defaults.bool(forKey: "showTPS")
+            migrated.fullMode = defaults.object(forKey: "fullMode") as? Bool ?? display.fullMode
+            migrated.showFiveHour = defaults.object(forKey: "showFiveHour") as? Bool ?? display.showFiveHour
+            migrated.showWeekly = defaults.object(forKey: "showWeekly") as? Bool ?? display.showWeekly
+            migrated.showCountdown = defaults.object(forKey: "showCountdown") as? Bool ?? display.showCountdown
+            migrated.showTPS = defaults.object(forKey: "showTPS") as? Bool ?? display.showTPS
             migrated.quotaLabelStyle = QuotaLabelStyle(rawValue: defaults.string(forKey: "quotaLabelStyle") ?? "") ?? display.quotaLabelStyle
             migrated.countdownStyle = CountdownStyle(rawValue: defaults.string(forKey: "countdownStyle") ?? "") ?? display.countdownStyle
-            migrated.tpsDecimals = defaults.integer(forKey: "tpsDecimals")
-            migrated.showTPSLabel = defaults.bool(forKey: "showTPSLabel")
+            migrated.tpsDecimals = defaults.object(forKey: "tpsDecimals") as? Int ?? display.tpsDecimals
+            migrated.showTPSLabel = defaults.object(forKey: "showTPSLabel") as? Bool ?? display.showTPSLabel
             options = migrated
         }
         if let bytes = defaults.data(forKey: "refreshOptions"),
            let saved = try? JSONDecoder().decode(RefreshOptions.self, from: bytes) {
             refreshOptions = saved
         } else { refreshOptions = AppDefaults.refresh }
-        autoRefresh = defaults.bool(forKey: "autoRefresh")
+        autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? AppDefaults.autoRefresh
         monitor = LogMonitor(home: home)
         if let bytes = defaults.data(forKey: quotaCacheKey),
            var saved = try? JSONDecoder().decode(QuotaSnapshot.self, from: bytes) {
@@ -162,6 +166,27 @@ final class AppModel: ObservableObject {
             recentTokenUsage = saved.dailyUsageBuckets.flatMap { TokenUsageSeries(buckets: $0) }
             accountWarning = "Showing saved account statistics until the next successful refresh."
         }
+        if let available = defaults.object(forKey: fiveHourAvailabilityKey) as? Bool {
+            applyFiveHourAvailability(available)
+        } else {
+            updateFiveHourAvailability(from: quota, allowSavedSnapshot: true)
+        }
+    }
+
+    private func updateFiveHourAvailability(from snapshot: QuotaSnapshot?, allowSavedSnapshot: Bool = false) {
+        // A failed read, a log fallback or a credits-only response cannot establish plan windows.
+        guard let snapshot, snapshot.source == .appServer,
+              allowSavedSnapshot || !snapshot.isStale,
+              snapshot.fiveHour != nil || snapshot.weekly != nil else { return }
+        applyFiveHourAvailability(snapshot.fiveHour != nil)
+    }
+
+    private func applyFiveHourAvailability(_ available: Bool) {
+        fiveHourAvailable = available
+        defaults.set(available, forKey: fiveHourAvailabilityKey)
+        reminders.setFiveHourAvailable(available)
+        if !available && options.showFiveHour { options.showFiveHour = false }
+        changed?()
     }
 
     func start() {

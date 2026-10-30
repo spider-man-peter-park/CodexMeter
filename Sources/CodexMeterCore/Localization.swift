@@ -38,6 +38,13 @@ public enum L10n {
         languageOverride ?? AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "system") ?? .system
     }
     public static var locale: Locale { Locale(identifier: language.resolvedCode()) }
+    private static let resourceBundle: Bundle = {
+        // Installed apps must resolve resources inside the app before SwiftPM's build-path fallback.
+        if let url = Bundle.main.url(forResource: "CodexMeter_CodexMeterCore", withExtension: "bundle"),
+           let bundle = Bundle(url: url) { return bundle }
+        return Bundle.module
+    }()
+    public static var resourceBundleURL: URL { resourceBundle.bundleURL }
     private static let english = localizedBundle("en")
     private static let chinese = localizedBundle("zh-Hans")
     private static let placeholder = try! NSRegularExpression(pattern: #"\{(\d+)\}"#)
@@ -45,7 +52,7 @@ public enum L10n {
     static func localizedBundle(_ code: String) -> Bundle? {
         // SwiftPM can lowercase localization directories on case-sensitive volumes.
         for name in [code, code.lowercased()] {
-            if let path = Bundle.module.path(forResource: name, ofType: "lproj"),
+            if let path = resourceBundle.path(forResource: name, ofType: "lproj"),
                let bundle = Bundle(path: path) { return bundle }
         }
         return nil

@@ -5,6 +5,29 @@ import Testing
 @Suite struct LocalActivityTests {
     private let time = Date(timeIntervalSince1970: 1_793_188_800)
     private var calendar: Calendar { var value = Calendar(identifier: .gregorian); value.timeZone = TimeZone(secondsFromGMT: 0)!; return value }
+    @Test func displayedTotalRejectsOtherDaysTimeZonesAndUnreadableOrIncompleteEmptyLogs() {
+        var usage = LocalDayUsage(dayStart: calendar.startOfDay(for: time), timeZoneIdentifier: calendar.timeZone.identifier,
+            updatedAt: time, hasDesktopLogs: true)
+        #expect(usage.displayTotal(at: time, calendar: calendar) == 0)
+        #expect(usage.displayTotal(at: time.addingTimeInterval(86_400), calendar: calendar) == nil)
+        var otherZone = calendar
+        otherZone.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+        #expect(usage.displayTotal(at: time, calendar: otherZone) == nil)
+        usage.hasDesktopLogs = false
+        #expect(usage.displayTotal(at: time, calendar: calendar) == nil)
+        usage.hasDesktopLogs = true
+        usage.isPartial = true
+        #expect(usage.displayTotal(at: time, calendar: calendar) == nil)
+        usage.isPartial = false
+        usage.logsAvailable = false
+        #expect(usage.displayTotal(at: time, calendar: calendar) == nil)
+        usage.responses = 1
+        usage.input = 1_000
+        usage.output = 200
+        usage.cachedInput = 800
+        usage.reasoningOutput = 100
+        #expect(usage.displayTotal(at: time, calendar: calendar) == 1_200)
+    }
     private func row(_ type: String, _ payload: [String: Any], at time: Date? = nil) throws -> Data {
         try JSONSerialization.data(withJSONObject: ["type": type, "timestamp": (time ?? self.time).ISO8601Format(), "payload": payload])
     }

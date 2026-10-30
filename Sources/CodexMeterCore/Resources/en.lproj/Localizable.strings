@@ -227,6 +227,9 @@
 "This account has no reported window" = "This account has no reported window";
 "This version of Codex does not support the requested account query." = "This version of Codex does not support the requested account query.";
 "Today · this Mac" = "Today · this Mac";
+"Show today's tokens" = "Show today's tokens";
+"Show TPS lightning icon" = "Show TPS lightning icon";
+", {0} tokens, local estimate" = ", {0} tokens, local estimate";
 "Token usage · 7 days" = "Token usage · 7 days";
 "Tokens" = "Tokens";
 "Typeface" = "Typeface";

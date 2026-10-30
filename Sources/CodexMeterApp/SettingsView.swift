@@ -249,7 +249,9 @@ struct SettingsContent: View {
                         set: { model.options.customQuotaLabel = DisplayOptions.sanitizeQuotaLabel($0) }))
                         .textFieldStyle(.roundedBorder)
                 }
-                settingsToggle(L10n.text("Show 5-hour quota"), isOn: $model.options.showFiveHour)
+                if model.fiveHourAvailable != false {
+                    settingsToggle(L10n.text("Show 5-hour quota"), isOn: $model.options.showFiveHour)
+                }
                 settingsToggle(L10n.text("Show 7-day quota"), isOn: $model.options.showWeekly)
                 settingsToggle(L10n.text("Show percent sign"), isOn: $model.options.showPercentSign)
                 settingsToggle(L10n.text("Show reset countdown"), isOn: $model.options.showCountdown)
@@ -274,6 +276,9 @@ struct SettingsContent: View {
                     Text("1").tag(1)
                 }
                 settingsToggle(L10n.text("Show TPS label"), isOn: $model.options.showTPSLabel)
+                settingsToggle(L10n.text("Show TPS lightning icon"), isOn: $model.options.showTPSIcon)
+                Divider()
+                settingsToggle(L10n.text("Show today's tokens"), isOn: $model.options.showTodayTokens)
             }
         }
     }
@@ -366,7 +371,9 @@ struct SettingsContent: View {
                 settingsToggle(L10n.text("Low quota alerts"), isOn: reminderBinding(\.lowQuotaEnabled))
                 settingsToggle(L10n.text("Quota recovery alerts"), isOn: reminderBinding(\.recoveryEnabled))
                 Group {
-                    settingsToggle(L10n.text("Monitor 5-hour quota"), isOn: reminderBinding(\.fiveHourEnabled))
+                    if model.fiveHourAvailable != false {
+                        settingsToggle(L10n.text("Monitor 5-hour quota"), isOn: reminderBinding(\.fiveHourEnabled))
+                    }
                     settingsToggle(L10n.text("Monitor 7-day quota"), isOn: reminderBinding(\.weeklyEnabled))
                     menuPicker(L10n.text("Low quota thresholds"), selection: reminderBinding(\.thresholds)) {
                         Text(L10n.text("20% and 10%")).tag(QuotaAlertThresholds.twentyAndTen)

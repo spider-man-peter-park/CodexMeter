@@ -2,19 +2,28 @@
 
 A small, native macOS menu bar companion for **OpenAI Codex Desktop**. Swift + SwiftUI + AppKit; no Electron, service, database, API key, or third-party runtime dependencies.
 
-The menu bar contains **three independent native items**, one for each quota window and one for TPS. Default examples:
+The menu bar contains **four independent native items**, one for each quota window, one for TPS and one for today's local tokens. Default examples:
 
 | Item | Text |
 | --- | --- |
 | 5-hour quota | GPT icon + `82% · 2h14m` |
 | 7-day quota | GPT icon + `61% · 4d8h` |
-| Latest response | `TPS` stacked above `73` |
+| Latest response | Lightning symbol + `TPS` stacked above `73` |
+| Today's local tokens | Stacked squares symbol + `69.2M` |
 
 These are examples, not hardcoded readings. Each item can be hidden separately and moved independently using the standard macOS Command-drag gesture. Click any item for the common detail panel, including quota bars, response details, account token statistics, remaining reset-credit cards, refresh, settings and Quit. Hovering identifies which quota window an `AI` item represents.
 
+When a successful quota response reports only a 7-day window, CodexMeter hides both 5-hour switches in Settings and turns off 5-hour menu bar display and notification monitoring. This removes the extra `N/A` item. The last confirmed window availability is retained across restarts. Failed reads, log fallbacks and responses containing only reset credits do not change that availability. If a later live response reports a 5-hour window, its switches return in the off state and can be enabled manually. Before any window availability is known, the original defaults remain available.
+
 Quota labels can be **AI**, **5h / 7d**, **Window icons**, **GPT icon**, **Custom**, or **None**. The GPT option uses the original black/white OpenAI Blossom assets from the [official logo package](https://cdn.openai.com/brand/OpenAI-Logos-2025.zip), bundled locally, and keeps the two quota items independent. Reset countdowns appear immediately after the remaining percentage and have their own toggle, with compact (`2h14m`, `4d8h`) or clock (`02:14`, `4d08:00`) formatting. TPS has 0/1 decimal-place and suffix controls. Appearance settings include Minimal/Balanced/Elegant presets, 9–16 pt system/rounded/monospaced fonts, weight, monochrome or accent colors, capsule backgrounds, spacing, SF Symbols or custom labels, the percent sign, and countdown separators. Presets preserve which metrics are visible and the refresh periods. If all metrics are hidden, a small `AI` item keeps settings accessible.
 
-New installations use GPT icons, 12 pt medium system text, compact spacing, dot-separated compact countdowns, and stacked TPS with no decimal places. All three menu bar metrics and their labels remain visible. A solid, high-contrast capsule appears only on the menu item whose detail panel is open. Closing the panel clears the background. Background settings can also keep capsules always visible or always use plain labels. Filled badges render their text and background together without translucent button layers; plain monochrome labels use native template rendering so macOS controls their menu-bar contrast. Existing saved preferences take priority over these defaults.
+New installations use GPT icons, 12 pt medium system text, compact spacing, dot-separated compact countdowns, and stacked TPS with no decimal places. All four menu bar metrics and their labels remain visible, subject to the account's confirmed quota windows. The system supplies the selected background while a menu item's detail panel or context menu is open; the app supplies template glyphs so macOS controls their contrast. Background settings can also keep custom capsules visible while inactive or use plain labels. Existing saved preferences take priority over these defaults.
+
+Settings → Labels & visible metrics → Show today's tokens controls the independent stacked-squares-and-count item and persists across restarts. It defaults to on when upgrading from settings that predate this option. The value uses the same local total as Today · this Mac, with compact K/M/B/T units; it includes input plus output without adding cached/reasoning subtotals again. Missing, incomplete empty or previous-day readings show `—`; a complete day with no usage shows `0`. Partial readings retain their estimate/backfill qualifiers in hover help. Changing this switch does not affect quota, TPS, reminders or log collection.
+
+TPS includes a lightning symbol to the left of its value in both Inline and Stacked layouts. Settings → Labels & visible metrics → Show TPS lightning icon controls this symbol independently of Show TPS label and Show TPS. The new switch defaults to on; explicit off values persist across restarts and appearance presets preserve the choice. Today · this Mac uses the same stacked squares symbol in its detail heading and layout settings.
+
+Selected images never contain a custom background, preventing a second capsule inside the system's selected pill. An Always capsule returns after dismissal. Item geometry stays stable across selection, and no native button highlight overrides are installed. This applies to both quota and TPS items without changing saved appearance choices.
 
 The panel closes when you click another application or switch away, including after editing settings. Pending anchor changes are cancelled on dismissal so changing metric visibility cannot reopen it after an outside click.
 
@@ -23,6 +32,8 @@ Clicking any menu bar item also refreshes quota, account statistics and local TP
 Missing data is `—`; a window absent from an otherwise valid account response is `N/A`. `*` marks cached or stale quota. An account with only weekly quota stays weekly-only. Version 0.2 migrates the original compact/full preference to independent controls and initially selects AI labels with countdowns enabled.
 
 ## Install and run
+
+Version 0.4.1 bundles the conditional five-hour controls, portable app resource lookup for Alfred launches, single native selected background, compact Today totals, stacked-square token item and optional TPS lightning icon. Existing preferences are retained; the two new menu bar options default to on until explicitly disabled.
 
 Requires macOS 14 or later and an already signed-in Codex Desktop installation. The locally built release is for Apple Silicon; build from source on an Intel Mac. Codex may be installed as Codex.app or integrated in ChatGPT.app. CodexMeter checks registered applications and standard install paths before falling back to `codex` in PATH.
 
@@ -66,7 +77,7 @@ The Subscription row displays the plan identifier reported by Codex with a reada
 
 ### Detail panel layout
 
-The detail header uses “Know your limits. Keep your focus.” and omits the version badge; the version remains available in About. Opening details from a menu bar item does not activate a covered Settings window. The current subscription appears as a distinct nameplate. Reset credits sit at the bottom of Plan limits as a collapsed count/expiry summary; expand the row for the returned card details. Today · this Mac shows the local token counts followed by the account’s latest seven reported dates; account totals are never added to the local estimate. The local date/timezone, estimate badges, token-detail disclosure, update time and account-report status rows are omitted from this compact card. Scope and partial-estimate information remains in hover help. Account usage keeps lifetime/streak statistics and the expandable daily token history. Longer explanations and local estimate qualifiers are available through hover help; cached and unavailable states retain brief status labels.
+The detail header uses “Know your limits. Keep your focus.” and omits the version badge; the version remains available in About. Opening details from a menu bar item does not activate a covered Settings window. The current subscription appears as a distinct nameplate. Reset credits sit at the bottom of Plan limits as a collapsed count/expiry summary; expand the row for the returned card details. Today · this Mac shows the local total tokens and usage-record count followed by the account’s latest seven reported dates; Input and Output breakdowns are omitted, and account totals are never added to the local estimate. The local date/timezone, estimate badges, token-detail disclosure, update time and account-report status rows are omitted from this compact card. Scope and partial-estimate information remains in hover help. Account usage keeps lifetime/streak statistics and the expandable daily token history. Longer explanations and local estimate qualifiers are available through hover help; cached and unavailable states retain brief status labels.
 
 Settings → Detail panel layout lists all five sections: Plan limits, Today · this Mac, Latest response, Account usage and Settings. The default shows the first three sections and hides Account usage and inline Settings. Use the up/down arrows to arrange them and the switches to show or hide each section. Hidden sections retain their positions. Layout choices persist across restarts and language changes independently of menu bar items and data-refresh preferences. Default layout restores only this section layout. The fixed footer’s Settings button and Command-, remain available even if every section is hidden. Hiding a section changes presentation only; monitoring and reminders continue according to their own settings.
 
@@ -105,6 +116,8 @@ open build/CodexMeter.app
 ```
 
 `build/CodexMeter.app` is self-contained. The build script signs it ad hoc. It inherits the architecture of the build machine. No package downloads are needed.
+
+The build script also runs `CodexMeter --verify-resources` against the packaged application. This checks that localization is loaded from the app's own resource bundle and that both languages and the bundled artwork are available, without opening windows or reading account data. Installed applications must continue to launch after the SwiftPM scratch directory is removed.
 
 Alternatively open `CodexMeter.xcodeproj`, choose the CodexMeter scheme and build/run. The native app target links the local `CodexMeterCore` Swift package. `Package.swift` can also be opened in Xcode for the Swift Testing unit tests. Regenerate the app project after adding app source files with `python3 scripts/generate-xcode-project.py`.
 

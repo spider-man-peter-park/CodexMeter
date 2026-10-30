@@ -227,6 +227,9 @@
 "This account has no reported window" = "此账户未返回该周期的额度";
 "This version of Codex does not support the requested account query." = "当前 Codex 版本不支持此账户查询。";
 "Today · this Mac" = "今日 · 本机";
+"Show today's tokens" = "显示今日 Token";
+"Show TPS lightning icon" = "显示 TPS 闪电图标";
+", {0} tokens, local estimate" = "，{0} Token，本机估算";
 "Token usage · 7 days" = "最近 7 天 Token 用量";
 "Tokens" = "Token";
 "Typeface" = "字体";

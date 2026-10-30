@@ -17,7 +17,7 @@ public enum DetailSection: String, CaseIterable, Identifiable, Sendable {
     public var symbol: String {
         switch self {
         case .quota: "chart.bar.fill"
-        case .today: "sun.max"
+        case .today: "square.stack.3d.up.fill"
         case .speed: "bolt.fill"
         case .account: "number.circle.fill"
         case .settings: "gearshape"

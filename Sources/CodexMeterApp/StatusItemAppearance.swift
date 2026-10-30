@@ -9,8 +9,7 @@ enum StatusItemAppearance {
         guard let button = item.button else { return }
         let image = makeImage(descriptor, options: options, remaining: window?.remainingPercent,
                               appearance: button.effectiveAppearance, isActive: isActive)
-        // Template content lets the menu bar choose its own foreground in every native state.
-        // Filled badges include their opaque background in the image, outside glass-layer compositing.
+        // The system owns the selected background; active images contain template glyphs only.
         button.attributedTitle = NSAttributedString(string: "")
         button.title = ""
         button.contentTintColor = nil
@@ -25,9 +24,10 @@ enum StatusItemAppearance {
     static func makeImage(_ descriptor: MenuBarItem, options: DisplayOptions,
                           remaining: Double?, appearance: NSAppearance, isActive: Bool = false) -> NSImage {
         let font = makeFont(options)
-        let capsule = options.itemStyle == .capsule || (options.itemStyle == .activeCapsule && isActive)
+        // Do not nest a custom fill inside the menu bar's system-managed selected pill.
+        let capsule = options.itemStyle == .capsule && !isActive
         let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let accent = accentColor(options.colorStyle, remaining: remaining)
+        let accent = isActive ? nil : accentColor(options.colorStyle, remaining: remaining)
         let template = !capsule && accent == nil
         let plainAccent = dark ? accent?.blended(withFraction: 0.6, of: .white) : accent
         let background: NSColor? = capsule ? (accent ?? (dark ? .white : .black)) : nil
@@ -49,19 +49,10 @@ enum StatusItemAppearance {
                     return true
                 }
             }
-        } else if let symbol = descriptor.symbolName,
-           let base = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
-            let configuration = NSImage.SymbolConfiguration(pointSize: options.normalizedFontSize, weight: .semibold)
-            let configured = base.withSymbolConfiguration(configuration) ?? base
-            let tinted = NSImage(size: configured.size, flipped: false) { rect in
-                configured.draw(in: rect)
-                foreground.setFill()
-                rect.fill(using: .sourceIn)
-                return true
-            }
-            symbolImage = tinted
+        } else if let symbol = descriptor.symbolName {
+            symbolImage = makeSymbol(symbol, options: options, foreground: foreground)
         }
-        let padding = max(capsule ? 6 : 3, options.itemHorizontalPadding)
+        let padding = max(options.itemStyle == .plain ? 3 : 6, options.itemHorizontalPadding)
         let symbolWidth = symbolImage.map { $0.size.width + 4 } ?? 0
         let titleSize = title.size()
         let size = NSSize(width: max(20, ceil(titleSize.width + symbolWidth + padding * 2)),
@@ -83,6 +74,18 @@ enum StatusItemAppearance {
         return image
     }
 
+    private static func makeSymbol(_ name: String, options: DisplayOptions, foreground: NSColor) -> NSImage? {
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }
+        let configuration = NSImage.SymbolConfiguration(pointSize: options.normalizedFontSize, weight: .semibold)
+        let configured = base.withSymbolConfiguration(configuration) ?? base
+        return NSImage(size: configured.size, flipped: false) { rect in
+            configured.draw(in: rect)
+            foreground.setFill()
+            rect.fill(using: .sourceIn)
+            return true
+        }
+    }
+
     private static func stackedTPS(_ value: String, descriptor: MenuBarItem, options: DisplayOptions,
                                    foreground: NSColor, background: NSColor?, template: Bool) -> NSImage {
         let valueSize = min(17, max(11, options.normalizedFontSize + 1))
@@ -97,23 +100,29 @@ enum StatusItemAppearance {
         let labelBounds = options.showTPSLabel ? CTLineGetImageBounds(label, nil) : .zero
         let gap: CGFloat = options.showTPSLabel ? 1.5 : 0
         let contentHeight = numberBounds.height + labelBounds.height + gap
+        let symbol = descriptor.symbolName.flatMap { makeSymbol($0, options: options, foreground: foreground) }
+        let symbolWidth = symbol.map { $0.size.width + 4 } ?? 0
         let padding = max(6, options.itemHorizontalPadding)
-        let size = NSSize(width: ceil(max(numberBounds.width, labelBounds.width) + padding * 2),
-                          height: max(20, ceil(contentHeight + 4)))
+        let size = NSSize(width: ceil(max(numberBounds.width, labelBounds.width) + symbolWidth + padding * 2),
+                          height: max(20, ceil(max(contentHeight, symbol?.size.height ?? 0) + 4)))
         let image = NSImage(size: size, flipped: false) { rect in
             if let background {
                 background.setFill()
                 NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
             }
+            if let symbol {
+                symbol.draw(at: NSPoint(x: padding, y: (size.height - symbol.size.height) / 2),
+                            from: .zero, operation: .sourceOver, fraction: 1)
+            }
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             context.saveGState()
             context.textMatrix = .identity
             let bottom = (size.height - contentHeight) / 2
-            context.textPosition = CGPoint(x: (size.width - numberBounds.width) / 2 - numberBounds.minX,
+            context.textPosition = CGPoint(x: (size.width + symbolWidth - numberBounds.width) / 2 - numberBounds.minX,
                                            y: bottom - numberBounds.minY)
             CTLineDraw(number, context)
             if options.showTPSLabel {
-                context.textPosition = CGPoint(x: (size.width - labelBounds.width) / 2 - labelBounds.minX,
+                context.textPosition = CGPoint(x: (size.width + symbolWidth - labelBounds.width) / 2 - labelBounds.minX,
                                                y: bottom + numberBounds.height + gap - labelBounds.minY)
                 CTLineDraw(label, context)
             }
