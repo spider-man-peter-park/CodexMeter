@@ -1,8 +1,8 @@
 cask "codexmeter" do
-  version "0.4.0"
-  sha256 "dade6ec86a7158a873e5720ca9abe99f80c707e35d2d7ab874ab264e9d552bc4"
+  version "0.4.1"
+  sha256 "8712690936304c388d601013284fde3d89dd6fecb052207d2281d419e429796f"
 
-  url "https://raw.githubusercontent.com/spider-man-peter-park/CodexMeter/381f5847eb0936a1de632bb4fe895cd039b21eec/dist/CodexMeter-#{version}-macOS-arm64.zip"
+  url "https://raw.githubusercontent.com/spider-man-peter-park/CodexMeter/de01e8370c0a25a566dac4d33a4a90625b40511f/dist/CodexMeter-#{version}-macOS-arm64.zip"
   name "CodexMeter"
   desc "Codex Desktop quota, token usage and response speed in the menu bar"
   homepage "https://github.com/spider-man-peter-park/CodexMeter"
