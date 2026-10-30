@@ -1,3 +1,4 @@
+import CodexMeterCore
 import Foundation
 
 enum AppMetadata {
@@ -12,7 +13,7 @@ enum AppMetadata {
 
 enum SubscriptionPlanLabel {
     static func title(for raw: String?) -> String {
-        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "Unavailable" }
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return L10n.text("Unavailable") }
         let normalized = raw.lowercased().filter { $0.isLetter || $0.isNumber }
         switch normalized {
         case "free": return "Free"
@@ -28,7 +29,7 @@ enum SubscriptionPlanLabel {
         case "edu", "education": return "Education"
         case "eduplus": return "Education Plus"
         case "edupro": return "Education Pro"
-        case "unknown": return "Unknown"
+        case "unknown": return L10n.text("Unknown")
         default:
             if normalized.hasPrefix("pro"), normalized.hasSuffix("x") {
                 let multiplier = normalized.dropFirst(3).dropLast()

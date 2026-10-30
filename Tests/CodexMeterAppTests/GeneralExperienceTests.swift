@@ -22,7 +22,7 @@ import Testing
         #expect(SubscriptionPlanLabel.title(for: "pro") == "Pro")
         #expect(SubscriptionPlanLabel.title(for: "pro_5x") == "Pro 5×")
         #expect(SubscriptionPlanLabel.title(for: "pro10x") == "Pro 10×")
-        #expect(SubscriptionPlanLabel.title(for: nil) == "Unavailable")
+        #expect(SubscriptionPlanLabel.title(for: nil) == L10n.text("Unavailable"))
         #expect(SubscriptionPlanLabel.title(for: "future_plan").contains("Future"))
         #expect(!SubscriptionPlanLabel.title(for: "pro").contains("×"))
     }

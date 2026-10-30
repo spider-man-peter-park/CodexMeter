@@ -14,28 +14,35 @@ struct TokenUsageChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Token usage · 7 days", systemImage: "chart.xyaxis.line")
-                    .font(.caption.weight(.semibold))
+                Label(L10n.text("Account tokens · 7 days"), systemImage: "chart.xyaxis.line")
+                    .font(MeterStyle.sectionFont)
+                    .help(L10n.text("Account dates are reported by Codex and may lag behind today. These totals are not added to the local estimate."))
                 Spacer()
+                if series.hasMissingDays {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(L10n.text("Some dates not reported"))
+                        .help(L10n.text("Gaps are dates not reported by Codex, not zero usage."))
+                }
             }
             Text("\(series.startDay) – \(series.endDay)")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(MeterStyle.captionFont).foregroundStyle(.secondary)
             Chart {
                 ForEach(series.days) { day in
                     if let tokens = day.tokens {
-                        LineMark(x: .value("Day", Double(day.index)), y: .value("Tokens", Double(tokens)),
+                        LineMark(x: .value(L10n.text("Day"), Double(day.index)), y: .value(L10n.text("Tokens"), Double(tokens)),
                                  series: .value("Run", day.segment))
                             .interpolationMethod(.linear)
                             .lineStyle(StrokeStyle(lineWidth: 2))
                             .foregroundStyle(.blue)
-                        PointMark(x: .value("Day", Double(day.index)), y: .value("Tokens", Double(tokens)))
-                            .symbolSize(24).foregroundStyle(.blue)
+                        PointMark(x: .value(L10n.text("Day"), Double(day.index)), y: .value(L10n.text("Tokens"), Double(tokens)))
+                            .symbolSize(18).foregroundStyle(.blue)
                             .accessibilityLabel(day.day)
-                            .accessibilityValue("\(TokenCountFormatter.compact(tokens)) tokens")
+                            .accessibilityValue(L10n.text("\(TokenCountFormatter.compact(tokens)) tokens"))
                     }
                 }
                 if let selectedDay {
-                    RuleMark(x: .value("Selected day", Double(selectedDay.index)))
+                    RuleMark(x: .value(L10n.text("Selected day"), Double(selectedDay.index)))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                         .foregroundStyle(Color.secondary.opacity(0.5))
                 }
@@ -48,7 +55,7 @@ struct TokenUsageChart: View {
                     AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
                     AxisValueLabel(anchor: .trailing, collisionResolution: .disabled) {
                         if let y = value.as(Double.self), let count = Int(exactly: y.rounded()) {
-                            Text(TokenCountFormatter.compact(count)).font(.system(size: 9))
+                            Text(TokenCountFormatter.compact(count)).font(MeterStyle.captionFont)
                         }
                     }
                 }
@@ -61,7 +68,7 @@ struct TokenUsageChart: View {
                         let plot = geometry[frame]
                         ForEach(series.days) { day in
                             if let x = proxy.position(forX: Double(day.index)) {
-                                Text(day.shortLabel).font(.system(size: 9)).foregroundStyle(.secondary)
+                                Text(day.shortLabel).font(MeterStyle.captionFont).foregroundStyle(.secondary)
                                     .fixedSize()
                                     .position(x: plot.minX + x, y: plot.maxY + 9)
                             }
@@ -69,20 +76,17 @@ struct TokenUsageChart: View {
                     }
                 }.allowsHitTesting(false)
             }
-            .frame(height: 140)
-            .padding(.bottom, 18)
+            .frame(height: 116)
+            .padding(.bottom, 20)
             HStack {
-                Text(selectedDay?.day ?? "Select a day for details")
+                Text(selectedDay?.day ?? L10n.text("Select a day"))
                 Spacer()
                 if let selectedDay {
-                    Text(selectedDay.tokens.map { TokenCountFormatter.compact($0) + " tokens" } ?? "Not reported")
+                    Text(selectedDay.tokens.map { TokenCountFormatter.compact($0) + L10n.text(" tokens") } ?? L10n.text("Not reported"))
                         .monospacedDigit()
                 }
-            }.font(.caption2).foregroundStyle(.secondary)
-            if series.hasMissingDays {
-                Text("Gaps are dates not reported by Codex, not zero usage.")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
+            }.font(MeterStyle.captionFont).foregroundStyle(.secondary)
+                .frame(height: 18, alignment: .leading).lineLimit(1)
         }
         .padding(.vertical, 4)
     }

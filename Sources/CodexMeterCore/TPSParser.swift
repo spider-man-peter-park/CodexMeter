@@ -32,6 +32,7 @@ public struct SessionParser: Codable, Sendable {
     public private(set) var source: SessionSource = .unknown
     public private(set) var latestResponseAt: Date?
     public private(set) var hasUnmeasurableResponse = false
+    public var sessionIdentifier: String? { sessionID }
     private var sawMetadata = false
     private var sessionID: String?
     private var isFork = false

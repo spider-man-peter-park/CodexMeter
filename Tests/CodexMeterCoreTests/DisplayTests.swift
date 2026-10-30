@@ -24,8 +24,8 @@ import Testing
         #expect(Set(items.map(\.id)).count == 3)
         #expect(items.map(\.title) == ["AI 82% 2h14m", "AI 61% 4d8h", "73 TPS"])
         #expect(items.allSatisfy { !$0.title.contains("|") })
-        #expect(items[0].accessibilityLabel.contains("5-hour"))
-        #expect(items[1].accessibilityLabel.contains("7-day"))
+        #expect(items[0].accessibilityLabel.contains(L10n.text("5-hour quota")))
+        #expect(items[1].accessibilityLabel.contains(L10n.text("7-day quota")))
     }
 
     @Test func noDataUsesDashesInsteadOfZero() {
@@ -87,7 +87,7 @@ import Testing
         #expect(items[0].title.hasSuffix(" *"))
         #expect(items[1].title.hasSuffix(" *"))
         #expect(!items[2].title.hasSuffix(" *"))
-        #expect(items[0].accessibilityLabel.contains("cached"))
+        #expect(items[0].accessibilityLabel.contains(L10n.text(", cached data, may be outdated")))
         let failed = MenuBarFormatter.items(quota: quota(), sample: nil,
                                             options: DisplayOptions(), now: now, stale: true)
         #expect(failed[0].title.hasSuffix(" *"))
@@ -99,7 +99,7 @@ import Testing
         #expect(items.count == 1)
         #expect(items[0].title == "73.4")
         #expect(items[0].metric == .tps)
-        #expect(items[0].accessibilityLabel.contains("effective tokens per second"))
+        #expect(items[0].accessibilityLabel.contains(L10n.text("Latest completed response, \("73.4") effective tokens per second")))
         let labeled = MenuBarFormatter.items(quota: nil, sample: sample,
                                              options: DisplayOptions(showFiveHour: false, showWeekly: false, tpsDecimals: 1), now: now)
         #expect(labeled[0].title == "73.4 TPS")
@@ -144,7 +144,7 @@ import Testing
         #expect(items[0].title == "82% 2h14m")
         #expect(items[0].symbolName == "clock")
         #expect(items[1].symbolName == "calendar")
-        #expect(items[0].accessibilityLabel.contains("5-hour quota"))
+        #expect(items[0].accessibilityLabel.contains(L10n.text("5-hour quota")))
         #expect(items[2].symbolName == nil)
     }
 
@@ -156,8 +156,8 @@ import Testing
         #expect(items.map(\.title) == ["82% 2h14m", "61% 4d8h", "73 TPS"])
         #expect(items.map(\.usesGPTLogo) == [true, true, false])
         #expect(items.allSatisfy { $0.symbolName == nil })
-        #expect(items[0].accessibilityLabel.contains("5-hour"))
-        #expect(items[1].accessibilityLabel.contains("7-day"))
+        #expect(items[0].accessibilityLabel.contains(L10n.text("5-hour quota")))
+        #expect(items[1].accessibilityLabel.contains(L10n.text("7-day quota")))
     }
 
     @Test func gptLogoWorksWithoutQuotaDataAndKeepsHiddenMetricsAccessible() {
@@ -195,7 +195,7 @@ import Testing
         let items = MenuBarFormatter.items(quota: quota(), sample: nil,
                                            options: DisplayOptions(showPercentSign: false), now: now)
         #expect(items[0].title == "AI 82 2h14m")
-        #expect(items[0].accessibilityLabel.contains("82 percent remaining"))
+        #expect(items[0].accessibilityLabel.contains(L10n.text(", \(82) percent remaining")))
         #expect(MenuBarFormatter.items(quota: nil, sample: nil,
                                       options: DisplayOptions(showPercentSign: false), now: now)[0].title == "AI —")
     }
@@ -207,7 +207,7 @@ import Testing
             let items = MenuBarFormatter.items(quota: quota(), sample: nil,
                                                options: DisplayOptions(countdownSeparator: separator), now: now)
             #expect(items[0].title == expected[separator])
-            #expect(items[0].accessibilityLabel.contains("resets in 2h14m"))
+            #expect(items[0].accessibilityLabel.contains(L10n.text(", resets in ") + "2h14m"))
         }
     }
 

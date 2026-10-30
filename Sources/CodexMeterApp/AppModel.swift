@@ -17,6 +17,10 @@ final class AppModel: ObservableObject {
         }
     }
     @Published private(set) var recentTokenUsage: TokenUsageSeries?
+    @Published private(set) var localDayUsage: LocalDayUsage?
+    @Published private(set) var recentTPSSamples: [TPSSample] = []
+    @Published private(set) var tpsHistoryBackfilling = true
+    @Published private(set) var tpsHistoryIsUnattributed = false
     @Published var sample: TPSSample?
     @Published var now = Date()
     @Published var refreshing = false
@@ -30,6 +34,9 @@ final class AppModel: ObservableObject {
     @Published var options: DisplayOptions {
         didSet { saveDisplayOptions(); changed?() }
     }
+    @Published var detailLayout: DetailLayout {
+        didSet { store(detailLayout, forKey: "detailLayout"); changed?() }
+    }
     @Published var refreshOptions: RefreshOptions {
         didSet {
             store(refreshOptions, forKey: "refreshOptions")
@@ -37,9 +44,17 @@ final class AppModel: ObservableObject {
         }
     }
     @Published var autoRefresh: Bool {
-        didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
+        didSet {
+            defaults.set(autoRefresh, forKey: "autoRefresh")
+            if !autoRefresh { cancelRecoveryRefresh() }
+        }
+    }
+    @Published var language: AppLanguage {
+        didSet { defaults.set(language.rawValue, forKey: "appLanguage"); changed?() }
     }
     var changed: (() -> Void)?
+    let reminders: AppReminders
+    let initialLoginPreference: Bool?
 
     private let defaults: UserDefaults
     private let homeKey: String
@@ -52,6 +67,18 @@ final class AppModel: ObservableObject {
     private var logTask: Task<Void, Never>?
     private var polling = false
     private var started = false
+    private var sleeping = false
+    private var pathAvailable = true
+    private var recoveryQuotaPending = false
+    private var recoveryAccountPending = false
+    private var recoveryDebounceUntil = Date.distantPast
+    private var recoveryTask: Task<Void, Never>?
+    private var quotaGate = RecoveryRefreshGate(minimumInterval: 60, maximumBackoff: 900)
+    private var accountGate = RecoveryRefreshGate(minimumInterval: 300, maximumBackoff: 1800)
+    private let readQuota: @Sendable (URL) async throws -> QuotaSnapshot
+    private let readAccount: @Sendable (URL) async throws -> AccountInfoSnapshot
+    private let recoveryClock: @MainActor () -> Date
+    private let recoverySleep: @MainActor (TimeInterval) async throws -> Void
 
     static func codexHome(defaults: UserDefaults = .standard) -> URL {
         let path = defaults.string(forKey: "codexHome")
@@ -60,40 +87,67 @@ final class AppModel: ObservableObject {
         return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath, isDirectory: true)
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         notificationCenter: any ReminderNotificationCenter = SystemReminderCenter(),
+         readQuota: @escaping @Sendable (URL) async throws -> QuotaSnapshot = { try await AppServerClient().readQuota(codexHome: $0) },
+         readAccount: @escaping @Sendable (URL) async throws -> AccountInfoSnapshot = { try await AppServerClient().readAccountInfo(codexHome: $0) },
+         recoveryClock: @escaping @MainActor () -> Date = { Date() },
+         recoverySleep: @escaping @MainActor (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }) {
         self.defaults = defaults
+        let legacyDisplayKeys = ["fullMode", "showFiveHour", "showWeekly", "showCountdown", "showTPS",
+                                 "quotaLabelStyle", "countdownStyle", "tpsDecimals", "showTPSLabel"]
+        let hasLegacyDisplay = legacyDisplayKeys.contains { defaults.object(forKey: $0) != nil }
+        let hasSavedPreferences = (legacyDisplayKeys + ["displaySchemaVersion", "displayOptions", "detailLayout",
+            "refreshOptions", "reminderOptions", "appLanguage", "autoRefresh", "automaticallyCheckForUpdates"])
+            .contains { defaults.object(forKey: $0) != nil }
+        initialLoginPreference = hasSavedPreferences ? nil : AppDefaults.launchAtLogin
+        language = AppLanguage(rawValue: defaults.string(forKey: "appLanguage") ?? "") ?? AppDefaults.language
+        detailLayout = defaults.data(forKey: "detailLayout")
+            .flatMap { try? JSONDecoder().decode(DetailLayout.self, from: $0) } ?? AppDefaults.detailLayout
+        self.readQuota = readQuota
+        self.readAccount = readAccount
+        self.recoveryClock = recoveryClock
+        self.recoverySleep = recoverySleep
         let home = Self.codexHome(defaults: defaults)
         let hash = home.standardizedFileURL.path.utf8.reduce(UInt64(14695981039346656037)) { ($0 ^ UInt64($1)) &* 1099511628211 }
         homeKey = String(hash, radix: 16)
+        reminders = AppReminders(defaults: defaults, scope: homeKey, center: notificationCenter)
         quotaCacheKey = "lastValidQuota." + homeKey
         accountCacheKey = "lastValidAccountInfo." + homeKey
-        defaults.register(defaults: ["showFiveHour": true, "showWeekly": true, "showCountdown": true,
-                                     "showTPS": true, "fullMode": false, "autoRefresh": true,
-                                     "quotaLabelStyle": "ai", "countdownStyle": "compact",
-                                     "tpsDecimals": 0, "showTPSLabel": true])
-        if defaults.integer(forKey: "displaySchemaVersion") < 2 {
+        let display = AppDefaults.display
+        defaults.register(defaults: ["showFiveHour": display.showFiveHour, "showWeekly": display.showWeekly,
+                                     "showCountdown": display.showCountdown, "showTPS": display.showTPS,
+                                     "fullMode": display.fullMode, "autoRefresh": AppDefaults.autoRefresh,
+                                     "quotaLabelStyle": display.quotaLabelStyle.rawValue,
+                                     "countdownStyle": display.countdownStyle.rawValue,
+                                     "tpsDecimals": display.tpsDecimals, "showTPSLabel": display.showTPSLabel])
+        if hasLegacyDisplay && defaults.integer(forKey: "displaySchemaVersion") < 2 {
             defaults.set("ai", forKey: "quotaLabelStyle")
             defaults.set(true, forKey: "showCountdown")
+        }
+        if defaults.integer(forKey: "displaySchemaVersion") < 2 {
             defaults.set(2, forKey: "displaySchemaVersion")
         }
         if let bytes = defaults.data(forKey: "displayOptions"),
            let saved = try? JSONDecoder().decode(DisplayOptions.self, from: bytes) {
             options = saved
         } else {
-            options = DisplayOptions(fullMode: defaults.bool(forKey: "fullMode"),
-                showFiveHour: defaults.bool(forKey: "showFiveHour"),
-                showWeekly: defaults.bool(forKey: "showWeekly"),
-                showCountdown: defaults.bool(forKey: "showCountdown"),
-                showTPS: defaults.bool(forKey: "showTPS"),
-                quotaLabelStyle: QuotaLabelStyle(rawValue: defaults.string(forKey: "quotaLabelStyle") ?? "") ?? .ai,
-                countdownStyle: CountdownStyle(rawValue: defaults.string(forKey: "countdownStyle") ?? "") ?? .compact,
-                tpsDecimals: defaults.integer(forKey: "tpsDecimals"),
-                showTPSLabel: defaults.bool(forKey: "showTPSLabel"))
+            var migrated = display
+            migrated.fullMode = defaults.bool(forKey: "fullMode")
+            migrated.showFiveHour = defaults.bool(forKey: "showFiveHour")
+            migrated.showWeekly = defaults.bool(forKey: "showWeekly")
+            migrated.showCountdown = defaults.bool(forKey: "showCountdown")
+            migrated.showTPS = defaults.bool(forKey: "showTPS")
+            migrated.quotaLabelStyle = QuotaLabelStyle(rawValue: defaults.string(forKey: "quotaLabelStyle") ?? "") ?? display.quotaLabelStyle
+            migrated.countdownStyle = CountdownStyle(rawValue: defaults.string(forKey: "countdownStyle") ?? "") ?? display.countdownStyle
+            migrated.tpsDecimals = defaults.integer(forKey: "tpsDecimals")
+            migrated.showTPSLabel = defaults.bool(forKey: "showTPSLabel")
+            options = migrated
         }
         if let bytes = defaults.data(forKey: "refreshOptions"),
            let saved = try? JSONDecoder().decode(RefreshOptions.self, from: bytes) {
             refreshOptions = saved
-        } else { refreshOptions = RefreshOptions() }
+        } else { refreshOptions = AppDefaults.refresh }
         autoRefresh = defaults.bool(forKey: "autoRefresh")
         monitor = LogMonitor(home: home)
         if let bytes = defaults.data(forKey: quotaCacheKey),
@@ -113,12 +167,15 @@ final class AppModel: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
+        reminders.start()
         refresh()
         configureTimers()
     }
 
     func stop() {
         started = false
+        cancelRecoveryRefresh()
+        reminders.stop()
         timers.forEach { $0.invalidate() }
         timers.removeAll()
         quotaTask?.cancel()
@@ -130,15 +187,15 @@ final class AppModel: ObservableObject {
         timers.forEach { $0.invalidate() }
         timers.removeAll()
         timer(every: refreshOptions.logInterval) { [weak self] in
-            guard let self, self.autoRefresh else { return }
+            guard let self, self.autoRefresh, !self.sleeping else { return }
             self.pollLogs()
         }
         timer(every: refreshOptions.quotaInterval) { [weak self] in
-            guard let self, self.autoRefresh else { return }
+            guard let self, self.autoRefresh, !self.sleeping else { return }
             self.refreshQuota()
         }
         timer(every: refreshOptions.accountInterval) { [weak self] in
-            guard let self, self.autoRefresh else { return }
+            guard let self, self.autoRefresh, !self.sleeping else { return }
             self.refreshAccountInfo()
         }
         timer(every: refreshOptions.displayInterval) { [weak self] in
@@ -165,17 +222,23 @@ final class AppModel: ObservableObject {
 
     private func refreshQuota() {
         guard !refreshing else { return }
+        recoveryQuotaPending = false
+        quotaGate.began(at: recoveryClock())
         refreshing = true
         quotaTask = Task { [weak self] in
             guard let self else { return }
-            defer { self.refreshing = false; self.changed?() }
+            defer { self.refreshing = false; self.changed?(); self.scheduleRecoveryRefresh() }
             do {
-                let fresh = try await AppServerClient().readQuota(codexHome: Self.codexHome(defaults: self.defaults))
+                let fresh = try await self.readQuota(Self.codexHome(defaults: self.defaults))
                 guard !Task.isCancelled else { return }
+                self.quotaGate.finished(success: true)
+                self.recoveryQuotaPending = false
                 self.quota = fresh
                 self.quotaWarning = nil
+                self.reminders.receiveLiveQuota(fresh)
             } catch {
                 guard !Task.isCancelled else { return }
+                self.quotaGate.finished(success: false)
                 let logs = await self.monitor.poll()
                 if self.quota == nil || (logs.cachedQuota?.updatedAt ?? .distantPast) > (self.quota?.updatedAt ?? .distantPast) {
                     self.quota = logs.cachedQuota ?? self.quota
@@ -188,19 +251,24 @@ final class AppModel: ObservableObject {
 
     private func refreshAccountInfo() {
         guard !accountRefreshing else { return }
+        recoveryAccountPending = false
+        accountGate.began(at: recoveryClock())
         accountRefreshing = true
         accountTask = Task { [weak self] in
             guard let self else { return }
-            defer { self.accountRefreshing = false }
+            defer { self.accountRefreshing = false; self.scheduleRecoveryRefresh() }
             do {
-                let fresh = try await AppServerClient().readAccountInfo(codexHome: Self.codexHome(defaults: self.defaults))
+                let fresh = try await self.readAccount(Self.codexHome(defaults: self.defaults))
                 guard !Task.isCancelled else { return }
+                self.accountGate.finished(success: true)
+                self.recoveryAccountPending = false
                 self.accountInfo = fresh
                 self.accountWarning = nil
             } catch {
                 guard !Task.isCancelled else { return }
+                self.accountGate.finished(success: false)
                 if var previous = self.accountInfo { previous.isStale = true; self.accountInfo = previous }
-                self.accountWarning = (error as? LocalizedError)?.errorDescription ?? "Account statistics are temporarily unavailable."
+                self.accountWarning = (error as? LocalizedError)?.errorDescription ?? L10n.text("Account statistics are temporarily unavailable.")
             }
         }
     }
@@ -219,9 +287,66 @@ final class AppModel: ObservableObject {
 
     private func apply(_ snapshot: LogSnapshot) {
         if let latest = snapshot.latestSample { sample = latest }
+        localDayUsage = snapshot.todayUsage
+        recentTPSSamples = snapshot.recentSamples
+        tpsHistoryBackfilling = snapshot.historyBackfilling
+        tpsHistoryIsUnattributed = snapshot.historyIsUnattributed
         latestUnmeasurable = snapshot.hasUnmeasurableResponse
         if quota == nil { quota = snapshot.cachedQuota }
         changed?()
+    }
+
+    func systemWillSleep() {
+        sleeping = true
+        cancelRecoveryRefresh()
+    }
+
+    func systemDidWake(canRefresh: Bool) {
+        sleeping = false
+        now = Date()
+        changed?()
+        if canRefresh { requestRecoveryRefresh() }
+    }
+
+    func networkPathChanged(available: Bool, recovered: Bool) {
+        pathAvailable = available
+        if !available { recoveryTask?.cancel(); recoveryTask = nil }
+        if recovered { requestRecoveryRefresh() }
+    }
+
+    func requestRecoveryRefresh() {
+        guard started, autoRefresh, !sleeping, pathAvailable else { return }
+        recoveryQuotaPending = true
+        recoveryAccountPending = true
+        recoveryDebounceUntil = recoveryClock().addingTimeInterval(3)
+        pollLogs()
+        scheduleRecoveryRefresh()
+    }
+
+    private func cancelRecoveryRefresh() {
+        recoveryTask?.cancel(); recoveryTask = nil
+        recoveryQuotaPending = false; recoveryAccountPending = false
+    }
+
+    private func scheduleRecoveryRefresh() {
+        recoveryTask?.cancel(); recoveryTask = nil
+        guard started, autoRefresh, !sleeping, pathAvailable else { return }
+        let time = recoveryClock()
+        var delays: [TimeInterval] = []
+        if recoveryQuotaPending && !refreshing { delays.append(quotaGate.delay(at: time)) }
+        if recoveryAccountPending && !accountRefreshing { delays.append(accountGate.delay(at: time)) }
+        guard let minimum = delays.min() else { return }
+        let delay = max(minimum, recoveryDebounceUntil.timeIntervalSince(time), 0)
+        recoveryTask = Task { [weak self] in
+            guard let self else { return }
+            do { try await self.recoverySleep(delay) } catch { return }
+            guard !Task.isCancelled, self.started, self.autoRefresh, !self.sleeping, self.pathAvailable else { return }
+            self.recoveryTask = nil
+            let time = self.recoveryClock()
+            if self.recoveryQuotaPending && !self.refreshing && self.quotaGate.delay(at: time) <= 0 { self.refreshQuota() }
+            if self.recoveryAccountPending && !self.accountRefreshing && self.accountGate.delay(at: time) <= 0 { self.refreshAccountInfo() }
+            self.scheduleRecoveryRefresh()
+        }
     }
 
     func refreshLoginStatus() {
@@ -229,6 +354,12 @@ final class AppModel: ObservableObject {
         loginEnabled = status == .enabled
         loginWarning = status == .requiresApproval
             ? "Allow CodexMeter in System Settings → General → Login Items." : nil
+    }
+
+    func applyInitialLoginPreference() {
+        guard let initialLoginPreference, !defaults.bool(forKey: "initialLoginPreferenceHandled") else { return }
+        defaults.set(true, forKey: "initialLoginPreferenceHandled")
+        setLogin(initialLoginPreference)
     }
 
     func setLogin(_ enabled: Bool) {

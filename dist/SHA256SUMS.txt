@@ -1,3 +1,4 @@
 3306bafab11627ed0b2f6f9a28844440e505e2e3a64cd0182f4c7b073b712c76  CodexMeter-0.3.4-macOS-arm64.zip
 a97fd9d88d09ade3ed9c3c3a95797283376f2afdafec87d48a532914b95b9cde  CodexMeter-0.3.5-macOS-arm64.zip
-a97fd9d88d09ade3ed9c3c3a95797283376f2afdafec87d48a532914b95b9cde  CodexMeter-macOS-arm64.zip
+dade6ec86a7158a873e5720ca9abe99f80c707e35d2d7ab874ab264e9d552bc4  CodexMeter-0.4.0-macOS-arm64.zip
+dade6ec86a7158a873e5720ca9abe99f80c707e35d2d7ab874ab264e9d552bc4  CodexMeter-macOS-arm64.zip

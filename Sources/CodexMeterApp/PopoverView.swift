@@ -3,106 +3,133 @@ import CodexMeterCore
 import SwiftUI
 
 struct PopoverView: View {
+    private static let appIcon = Bundle.main.url(forResource: "AppIcon", withExtension: "icns")
+        .flatMap { NSImage(contentsOf: $0) }
+        ?? NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: nil)!
     @ObservedObject var model: AppModel
     @ObservedObject var updates: AppUpdates
+    @StateObject private var disclosure = PopoverDisclosureState()
     var onOpenSettings: () -> Void = {}
     var onOpenAbout: () -> Void = {}
     var panelHeight: CGFloat = 740
 
     var body: some View {
         VStack(spacing: 0) {
-            header.padding(18)
+            header.padding(.horizontal, MeterStyle.pageInset).padding(.vertical, 14)
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
                     if updates.updateAvailable, let latest = updates.latestVersion {
-                        Link("CodexMeter \(latest.description) is available", destination: AppMetadata.projectURL)
+                        Link(L10n.text("CodexMeter \(latest.description) is available"), destination: AppMetadata.projectURL)
                             .font(.caption.weight(.medium))
                     }
-                    card { quotaSection }
-                    card { speedSection }
-                    card { accountSection }
-                    card { resetCreditsSection }
-                    card { settingsSection }
-                    if model.quota == nil, model.quotaWarning != nil {
-                        Text("Open Codex and sign in there, then refresh. CodexMeter never opens a login flow.")
-                            .font(.caption).foregroundStyle(.secondary)
+                    ForEach(Array(model.detailLayout.visibleSections.enumerated()), id: \.element.id) { index, section in
+                        if index > 0 { Divider().padding(.horizontal, MeterStyle.pageInset) }
+                        sectionContainer {
+                            switch section {
+                            case .quota: quotaSection
+                            case .today: localTodaySection
+                            case .speed: speedSection
+                            case .account: accountSection
+                            case .settings: settingsSection
+                            }
+                        }
+                    }
+                    if model.detailLayout.visibleSections.isEmpty {
+                        VStack(spacing: 12) {
+                            Text(L10n.text("No sections visible")).foregroundStyle(.secondary)
+                            Button(L10n.text("Customize layout…"), action: onOpenSettings)
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, 28)
                     }
                 }
-                .padding(18)
             }
+            .background(MeterStyle.background)
             Divider()
-            footer.padding(.horizontal, 18).padding(.vertical, 12)
+            footer.padding(.horizontal, MeterStyle.pageInset).padding(.vertical, 10)
+                .background(MeterStyle.surface)
         }
-        .frame(width: 420, height: panelHeight)
+        .frame(width: 420, height: model.detailLayout.visibleSections.isEmpty ? min(panelHeight, 240) : panelHeight)
+        .environment(\.locale, L10n.locale)
+        .id(model.language)
     }
 
     private var header: some View {
         HStack(spacing: 11) {
-            Image(systemName: "gauge.with.dots.needle.50percent")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
-                .background(LinearGradient(colors: [.teal, .blue], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 12))
+            Image(nsImage: Self.appIcon)
+                .resizable().interpolation(.high).frame(width: 28, height: 28)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(AppMetadata.name).font(.system(size: 15, weight: .semibold, design: .rounded))
-                    Text(AppMetadata.versionLabel).font(.caption2).foregroundStyle(.secondary)
-                }
-                Text("Limits, tokens & response speed").font(.caption2).foregroundStyle(.secondary)
+                Text(AppMetadata.name).font(MeterStyle.titleFont)
+                Text(L10n.text("Know your limits. Keep your focus.")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
             Spacer()
-            if model.refreshing || model.accountRefreshing { ProgressView().controlSize(.small) }
-            Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless).disabled(model.refreshing)
-                .help("Refresh quota, account usage and local responses")
-                .accessibilityLabel("Refresh")
+            Group {
+                if model.refreshing || model.accountRefreshing { ProgressView().controlSize(.small) }
+                else { Color.clear }
+            }.frame(width: 16, height: 16)
+            MeterIconButton(symbol: "arrow.clockwise", title: L10n.text("Refresh")) { model.refresh() }
+                .disabled(model.refreshing)
+                .help(model.quota == nil && model.quotaWarning != nil
+                    ? L10n.text("Open Codex and sign in there, then refresh. CodexMeter never opens a login flow.")
+                    : L10n.text("Refresh quota, account usage and local responses"))
         }
     }
 
     private var footer: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.quota?.source == .appServer && model.quota?.isStale == false && model.quotaWarning == nil ? "Live quota" : "Quota updated")
-                Text(model.quota.map { Self.date($0.updatedAt) } ?? "No quota data yet")
-            }.font(.caption2).foregroundStyle(.secondary)
+                Text(model.quota?.source == .appServer && model.quota?.isStale == false && model.quotaWarning == nil ? L10n.text("Live quota") : L10n.text("Quota updated"))
+                Text(model.quota.map { Self.date($0.updatedAt) } ?? L10n.text("No quota data yet"))
+            }.font(MeterStyle.captionFont).foregroundStyle(.secondary)
             Spacer()
-            Button(action: onOpenSettings) { Image(systemName: "gearshape") }
-                .buttonStyle(.borderless).help("Settings… (⌘,)").accessibilityLabel("Settings")
-            Button(action: onOpenAbout) { Image(systemName: "info.circle") }
-                .buttonStyle(.borderless).help("About CodexMeter").accessibilityLabel("About CodexMeter")
-            Button("Quit CodexMeter") { NSApplication.shared.terminate(nil) }
-                .buttonStyle(.borderless).font(.caption)
+            MeterIconButton(symbol: "gearshape", title: L10n.text("Settings"), action: onOpenSettings)
+            MeterIconButton(symbol: "info.circle", title: L10n.text("About CodexMeter"), action: onOpenAbout)
+            Button(L10n.text("Quit")) { NSApplication.shared.terminate(nil) }
+                .buttonStyle(.borderless).font(MeterStyle.captionFont)
+                .help(L10n.text("Quit CodexMeter")).accessibilityLabel(L10n.text("Quit CodexMeter"))
         }
     }
 
-    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func sectionContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(14)
+            .padding(.horizontal, MeterStyle.pageInset)
+            .padding(.vertical, MeterStyle.sectionGap)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.06), lineWidth: 1))
     }
 
     private var quotaSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Plan limits", symbol: "chart.bar.fill")
-            HStack(alignment: .firstTextBaseline) {
-                Text("Subscription").foregroundStyle(.secondary)
-                Spacer()
-                Text(SubscriptionPlanLabel.title(for: model.accountInfo?.planType))
-                    .fontWeight(.semibold).multilineTextAlignment(.trailing)
-            }.font(.caption)
+            sectionTitle(L10n.text("Plan limits"), symbol: "chart.bar.fill")
+            subscriptionBadge
             if model.quota == nil || model.quota?.fiveHour != nil {
-                quotaRow("5-hour limit", symbol: "clock", window: model.quota?.fiveHour)
+                quotaRow(L10n.text("5-hour limit"), symbol: "clock", window: model.quota?.fiveHour)
                 Divider()
             }
-            quotaRow("7-day limit", symbol: "calendar", window: model.quota?.weekly)
-            if model.quota?.source == .logCache || model.quota?.isStale == true || model.quotaWarning != nil {
-                Label("Cached quota · may be outdated", systemImage: "clock.badge.exclamationmark")
-                    .font(.caption2).foregroundStyle(.orange)
+            quotaRow(L10n.text("7-day limit"), symbol: "calendar", window: model.quota?.weekly)
+            if quotaIsCached {
+                MeterStatusLabel(title: L10n.text("Cached quota · may be outdated"), symbol: "clock.badge.exclamationmark")
             }
+            Divider()
+            resetCreditsSection
+        }
+    }
+
+    private var subscriptionBadge: some View {
+        HStack(spacing: 12) {
+            Text(L10n.text("Subscription")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Label {
+                Text(SubscriptionPlanLabel.title(for: model.accountInfo?.planType))
+                    .font(.system(size: 16, weight: .semibold)).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "crown").font(.system(size: 12)).accessibilityHidden(true)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor.opacity(0.18)))
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -112,20 +139,20 @@ struct PopoverView: View {
                 Label(title, systemImage: symbol).font(.subheadline)
                 Spacer()
                 Text(window.map { "\(Int($0.remainingPercent.rounded()))%" } ?? (model.quota == nil ? "—" : "N/A"))
-                    .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
-                    .foregroundStyle(color(window))
-                if window != nil { Text("left").font(.caption2).foregroundStyle(.secondary) }
+                    .font(MeterStyle.numberFont).monospacedDigit()
+                    .foregroundStyle(color(window)).frame(minWidth: 64, alignment: .trailing)
+                if window != nil { Text(L10n.text("left")).font(MeterStyle.captionFont).foregroundStyle(.secondary) }
             }
             if let window {
                 ProgressView(value: window.remainingPercent, total: 100).tint(color(window))
                 HStack {
-                    Text("Resets in \(MenuBarFormatter.countdown(until: window.resetsAt, now: model.now, style: model.options.countdownStyle))")
+                    Text(L10n.text("Resets in \(MenuBarFormatter.countdown(until: window.resetsAt, now: model.now, style: model.options.countdownStyle))"))
                     Spacer()
                     if let reset = window.resetsAt { Text(reset, style: .time) }
-                }.font(.caption2).foregroundStyle(.secondary)
+                }.font(MeterStyle.captionFont).foregroundStyle(.secondary)
             } else {
-                Text(model.quota == nil ? "Waiting for quota data" : "This account has no reported window")
-                    .font(.caption2).foregroundStyle(.secondary)
+                Text(model.quota == nil ? L10n.text("Waiting for quota data") : L10n.text("This account has no reported window"))
+                    .font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
         }
     }
@@ -134,35 +161,27 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionTitle("Latest response", symbol: "bolt.fill")
-                    Text(model.sample?.model ?? "Model unavailable")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    sectionTitle(L10n.text("Latest response"), symbol: "bolt.fill")
+                    Text(model.sample?.model ?? L10n.text("Model unavailable"))
+                        .font(MeterStyle.captionFont).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer()
                 Text(model.sample.map { String(format: "%.1f", $0.tokensPerSecond) } ?? "—")
-                    .font(.system(size: 29, weight: .medium, design: .rounded)).monospacedDigit()
-                Text("TPS").font(.caption).foregroundStyle(.secondary)
+                    .font(MeterStyle.numberFont).monospacedDigit()
+                Text("TPS").font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
-            if let sample = model.sample {
-                HStack {
-                    metric("Output", value: TokenCountFormatter.compact(sample.outputTokens))
-                    Spacer()
-                    metric("Reasoning¹", value: TokenCountFormatter.compact(sample.reasoningTokens))
-                    Spacer()
-                    metric("Elapsed", value: String(format: "%.2fs", sample.elapsedSeconds))
-                }
-                Text("Completed \(Self.date(sample.completedAt))")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Text(sample.isEstimated ? "Effective rate · estimated from local event boundaries" : "Effective rate · measured response boundary")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Text("¹ Included in output tokens").font(.caption2).foregroundStyle(.tertiary)
+            if model.sample != nil {
                 if model.latestUnmeasurable {
-                    Text("The latest request has no reliable timing. Showing the last valid sample above.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Label(L10n.text("Last valid response"), systemImage: "clock")
+                        .font(MeterStyle.captionFont).foregroundStyle(.secondary)
+                        .help(L10n.text("The latest request has no reliable timing. Showing the last valid sample above."))
                 }
+                Divider()
+                TPSHistoryChart(samples: model.recentTPSSamples, isBackfilling: model.tpsHistoryBackfilling,
+                    isUnattributed: model.tpsHistoryIsUnattributed)
             } else {
-                Text("TPS is unavailable until a response has reliable timing and token usage.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(L10n.text("TPS is unavailable until a response has reliable timing and token usage."))
+                    .font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -171,73 +190,99 @@ struct PopoverView: View {
     private var accountSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                sectionTitle("Account usage", symbol: "number.circle.fill")
+                sectionTitle(L10n.text("Account usage"), symbol: "number.circle.fill")
                 Spacer()
             }
             HStack {
-                metric("Lifetime tokens", value: TokenCountFormatter.compact(model.accountInfo?.summary?.lifetimeTokens))
+                metric(L10n.text("Lifetime tokens"), value: TokenCountFormatter.compact(model.accountInfo?.summary?.lifetimeTokens))
                 Spacer()
-                metric("Peak daily tokens", value: TokenCountFormatter.compact(model.accountInfo?.summary?.peakDailyTokens))
+                metric(L10n.text("Peak daily tokens"), value: TokenCountFormatter.compact(model.accountInfo?.summary?.peakDailyTokens))
             }
             Divider()
             HStack {
-                metric("Current streak", value: model.accountInfo?.summary?.currentStreakDays.map { "\($0)d" } ?? "—")
+                metric(L10n.text("Current streak"), value: model.accountInfo?.summary?.currentStreakDays.map { L10n.text("\($0)d") } ?? "—")
                 Spacer()
-                metric("Longest streak", value: model.accountInfo?.summary?.longestStreakDays.map { "\($0)d" } ?? "—")
+                metric(L10n.text("Longest streak"), value: model.accountInfo?.summary?.longestStreakDays.map { L10n.text("\($0)d") } ?? "—")
                 Spacer()
-                metric("Longest turn", value: model.accountInfo?.summary?.longestRunningTurnSec.map(Self.duration) ?? "—")
+                metric(L10n.text("Longest turn"), value: model.accountInfo?.summary?.longestRunningTurnSec.map(Self.duration) ?? "—")
             }
-            dailyUsageSection
+            if let buckets = model.accountInfo?.dailyUsageBuckets, !buckets.isEmpty {
+                Divider()
+                dailyHistorySection(buckets)
+            }
             Divider()
             if let info = model.accountInfo {
-                Text("Usage updated \(Self.date(info.updatedAt))")
-                    .font(.caption2).foregroundStyle(.secondary)
+                Text(L10n.text("Usage updated \(Self.date(info.updatedAt))"))
+                    .font(MeterStyle.captionFont).foregroundStyle(.secondary)
                 if info.isStale || model.accountWarning != nil {
-                    Text("Account usage is cached and may be outdated.")
-                        .font(.caption2).foregroundStyle(.orange)
+                    MeterStatusLabel(title: L10n.text("Cached account data"), symbol: "clock.badge.exclamationmark")
+                        .help(L10n.text("Account usage is cached and may be outdated."))
                 }
             } else {
-                Text("Account token statistics are currently unavailable.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(L10n.text("Account token statistics are currently unavailable."))
+                    .font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    @ViewBuilder private var dailyUsageSection: some View {
-        if let buckets = model.accountInfo?.dailyUsageBuckets {
-            if buckets.isEmpty {
-                Text("No daily token totals were returned.").font(.caption).foregroundStyle(.secondary)
-            } else {
-                let sorted = buckets.sorted { $0.startDate > $1.startDate }
-                if let latest = sorted.first {
-                    HStack {
-                        Text("Latest reported day · \(latest.startDate)")
+    private var localTodaySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle(L10n.text("Today · this Mac"), symbol: "sun.max")
+                .help(model.localDayUsage?.isPartial == true
+                    ? L10n.text("Partial estimate: some usage records could not be counted safely.")
+                    : L10n.text("Desktop logs and linked subagents, by usage-record time. Other-device or cloud activity without local records is not covered. Separate from account daily totals."))
+            if let usage = model.localDayUsage, usage.matches(model.now) {
+                if usage.hasDesktopLogs && (usage.logsAvailable || usage.responses > 0) {
+                    let counted = usage.responses > 0 || (!usage.isBackfilling && !usage.isPartial)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(counted ? TokenCountFormatter.compact(usage.total) : "—")
+                            .font(MeterStyle.numberFont).monospacedDigit()
+                        Text(L10n.text("tokens")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
                         Spacer()
-                        Text(TokenCountFormatter.compact(latest.tokens)).monospacedDigit().fontWeight(.medium)
-                    }.font(.caption)
+                        Text(L10n.text("\(usage.responses) usage records")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        metric(L10n.text("Input"), value: TokenCountFormatter.compact(counted ? usage.input : nil))
+                        Spacer()
+                        metric(L10n.text("Output"), value: TokenCountFormatter.compact(counted ? usage.output : nil))
+                    }
+                } else {
+                    Text(usage.isBackfilling ? L10n.text("Counting today's local usage…") : L10n.text("No readable, supported Desktop usage is available."))
+                        .font(MeterStyle.captionFont).foregroundStyle(.secondary)
                 }
-                if let series = model.recentTokenUsage {
-                    TokenUsageChart(series: series)
-                }
-                DisclosureGroup("Daily tokens · \(sorted.count) dates") {
-                    VStack(spacing: 7) {
-                        ForEach(Array(sorted.prefix(14).enumerated()), id: \.offset) { _, day in dailyRow(day) }
-                        if sorted.count > 14 {
-                            DisclosureGroup("Earlier dates") {
-                                VStack(spacing: 7) {
-                                    ForEach(Array(sorted.dropFirst(14).enumerated()), id: \.offset) { _, day in dailyRow(day) }
-                                }.padding(.top, 7)
-                            }
-                        }
-                        Text("Dates and totals reported by Codex. A missing date is not treated as zero.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }.padding(.top, 8)
-                }.font(.caption)
+                if usage.isBackfilling { Label(L10n.text("Backfilling today's logs…"), systemImage: "clock").font(MeterStyle.captionFont).foregroundStyle(.secondary) }
+            } else {
+                Text(L10n.text("Waiting for today's local log refresh…")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
-        } else {
-            Text("Daily token totals were not provided.").font(.caption).foregroundStyle(.secondary)
+            Divider()
+            if let series = model.recentTokenUsage {
+                TokenUsageChart(series: series)
+            } else {
+                HStack {
+                    sectionTitle(L10n.text("Account tokens · 7 days"), symbol: "chart.xyaxis.line")
+                    Spacer()
+                    Text(L10n.text("Not reported")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
+                }
+                .help(L10n.text("Daily token totals were not provided."))
+            }
         }
+    }
+
+    private func dailyHistorySection(_ buckets: [AccountDailyUsageBucket]) -> some View {
+        let sorted = buckets.sorted { $0.startDate > $1.startDate }
+        return DisclosureGroup(L10n.text("Daily tokens · \(sorted.count) dates")) {
+            VStack(spacing: 7) {
+                ForEach(Array(sorted.prefix(14).enumerated()), id: \.offset) { _, day in dailyRow(day) }
+                if sorted.count > 14 {
+                    DisclosureGroup(L10n.text("Earlier dates")) {
+                        VStack(spacing: 7) {
+                            ForEach(Array(sorted.dropFirst(14).enumerated()), id: \.offset) { _, day in dailyRow(day) }
+                        }.padding(.top, 7)
+                    }
+                }
+            }.padding(.top, 8)
+        }.font(MeterStyle.captionFont).help(L10n.text("Dates and totals reported by Codex. A missing date is not treated as zero."))
     }
 
     private func dailyRow(_ day: AccountDailyUsageBucket) -> some View {
@@ -245,46 +290,69 @@ struct PopoverView: View {
             Text(day.startDate).foregroundStyle(.secondary)
             Spacer()
             Text(TokenCountFormatter.compact(day.tokens)).monospacedDigit()
-        }.font(.caption)
+        }.font(MeterStyle.captionFont)
     }
 
     private var settingsSection: some View {
-        DisclosureGroup("Settings", isExpanded: $model.settingsExpanded) {
+        DisclosureGroup(L10n.text("Settings"), isExpanded: $model.settingsExpanded) {
             SettingsContent(model: model, updates: updates).padding(.top, 14)
         }
     }
 
     private var resetCreditsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                sectionTitle("Quota reset credits", symbol: "arrow.counterclockwise.circle.fill")
-                Spacer()
-                Text(model.quota?.resetCredits.map { "\($0.availableCount) available" } ?? "—")
-                    .font(.caption.weight(.semibold)).monospacedDigit()
+        DisclosureGroup(isExpanded: $disclosure.resetCredits) {
+            resetCreditDetails.padding(.top, 8)
+        } label: {
+            HStack(spacing: 8) {
+                Label(L10n.text("Reset credits"), systemImage: "arrow.counterclockwise.circle")
+                Spacer(minLength: 4)
+                Text(resetCreditSummary)
+                    .fontWeight(.medium).monospacedDigit().lineLimit(1).minimumScaleFactor(0.85)
+                    .foregroundStyle(.secondary)
             }
+            .contentShape(Rectangle())
+        }
+        .font(MeterStyle.captionFont)
+    }
+
+    private var quotaIsCached: Bool {
+        model.quota?.source == .logCache || model.quota?.isStale == true || model.quotaWarning != nil
+    }
+
+    private var resetCreditSummary: String {
+        guard let summary = model.quota?.resetCredits else { return L10n.text("Unavailable") }
+        if quotaIsCached { return L10n.text("Cached · \(summary.availableCount) reported") }
+        if summary.availableCount > 0, let expiry = summary.credits?
+            .filter({ $0.status.lowercased() == "available" })
+            .compactMap(\.expiresAt).filter({ $0 > model.now }).min() {
+            let date = expiry.formatted(.dateTime.month(.abbreviated).day().locale(L10n.locale))
+            return L10n.text("\(summary.availableCount) available · expires \(date)")
+        }
+        return L10n.text("\(summary.availableCount) available")
+    }
+
+    private var resetCreditDetails: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if let summary = model.quota?.resetCredits {
                 if let credits = summary.credits {
                     if credits.isEmpty {
-                        Text(summary.availableCount == 0 ? "No reset credits are currently available." :
-                                "The account reports available credits, but no credit details were returned.")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text(summary.availableCount == 0 ? L10n.text("No reset credits are currently available.") :
+                                L10n.text("Details not provided"))
+                            .font(MeterStyle.captionFont).foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(credits.enumerated()), id: \.offset) { _, credit in resetCredit(credit) }
                         if credits.count < summary.availableCount {
-                            Text("Showing \(credits.count) credit details. The account reports \(summary.availableCount) available credits.")
-                                .font(.caption).foregroundStyle(.secondary)
+                            Text(L10n.text("\(credits.count) details returned"))
+                                .font(MeterStyle.captionFont).foregroundStyle(.secondary)
                         }
                     }
                 } else {
-                    Text("Only the available count was returned. Credit details and expiration dates are unavailable.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if model.quota?.source == .logCache || model.quota?.isStale == true || model.quotaWarning != nil {
-                    Text("Credit information is cached and may be outdated.")
-                        .font(.caption2).foregroundStyle(.orange)
+                    Text(L10n.text("Details not provided"))
+                        .font(MeterStyle.captionFont).foregroundStyle(.secondary)
+                        .help(L10n.text("Only the available count was returned. Credit details and expiration dates are unavailable."))
                 }
             } else {
-                Text("Reset credit information was not provided by Codex.").font(.caption).foregroundStyle(.secondary)
+                Text(L10n.text("Reset credit information was not provided by Codex.")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -293,19 +361,19 @@ struct PopoverView: View {
     private func resetCredit(_ credit: ResetCredit) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
-                Text(credit.title ?? "Quota reset").font(.caption.weight(.semibold))
+                Text(credit.title.map { L10n.lookup($0) } ?? L10n.text("Quota reset")).font(.caption.weight(.semibold))
                 Spacer(minLength: 8)
-                Text(credit.status).font(.caption2).foregroundStyle(.secondary)
+                Text(L10n.lookup(credit.status)).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
-            detailRow("Granted", value: credit.grantedAt.map(Self.creditDate) ?? "Not provided")
-            detailRow("Expires", value: credit.expiresAt.map(Self.creditDate) ?? "Not provided")
+            detailRow(L10n.text("Granted"), value: credit.grantedAt.map(Self.creditDate) ?? L10n.text("Not provided"))
+            detailRow(L10n.text("Expires"), value: credit.expiresAt.map(Self.creditDate) ?? L10n.text("Not provided"))
             if let description = credit.description, !description.isEmpty {
-                Text(description).font(.caption).foregroundStyle(.secondary)
+                Text(L10n.lookup(description)).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .background(MeterStyle.surface, in: RoundedRectangle(cornerRadius: 6))
     }
 
     private func detailRow(_ label: String, value: String) -> some View {
@@ -313,29 +381,30 @@ struct PopoverView: View {
             Text(label).foregroundStyle(.secondary)
             Spacer()
             Text(value).multilineTextAlignment(.trailing)
-        }.font(.caption2)
+        }.font(MeterStyle.captionFont)
     }
 
     private func sectionTitle(_ title: String, symbol: String) -> some View {
-        Label(title, systemImage: symbol).font(.caption.weight(.semibold))
+        Label(title, systemImage: symbol.replacingOccurrences(of: ".fill", with: ""))
+            .font(MeterStyle.sectionFont).foregroundStyle(.primary)
     }
 
     private static func creditDate(_ value: Date) -> String {
-        value.formatted(.dateTime.year().month(.abbreviated).day().hour().minute())
+        value.formatted(.dateTime.year().month(.abbreviated).day().hour().minute().locale(L10n.locale))
     }
 
     private static func duration(_ seconds: Int) -> String {
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        if minutes > 0 { return "\(minutes)m \(seconds % 60)s" }
-        return "\(seconds)s"
+        if hours > 0 { return L10n.text("\(hours)h \(minutes)m") }
+        if minutes > 0 { return L10n.text("\(minutes)m \(seconds % 60)s") }
+        return L10n.text("\(seconds)s")
     }
 
     private func metric(_ label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-            Text(value).font(.system(.caption, design: .rounded).weight(.semibold)).monospacedDigit()
+            Text(label).font(MeterStyle.captionFont).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 15, weight: .semibold)).monospacedDigit()
         }
     }
 
@@ -347,6 +416,12 @@ struct PopoverView: View {
     }
 
     private static func date(_ value: Date) -> String {
-        value.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
+        value.formatted(.dateTime.month(.abbreviated).day().hour().minute().second().locale(L10n.locale))
     }
+
+
+}
+
+private final class PopoverDisclosureState: ObservableObject {
+    @Published var resetCredits = false
 }

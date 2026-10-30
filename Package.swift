@@ -3,13 +3,14 @@ import PackageDescription
 
 let package = Package(
     name: "CodexMeter",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "CodexMeterCore", targets: ["CodexMeterCore"]),
         .executable(name: "CodexMeter", targets: ["CodexMeterApp"])
     ],
     targets: [
-        .target(name: "CodexMeterCore"),
+        .target(name: "CodexMeterCore", resources: [.process("Resources")]),
         .executableTarget(name: "CodexMeterApp", dependencies: ["CodexMeterCore"],
                           resources: [.process("Resources")]),
         .testTarget(name: "CodexMeterCoreTests", dependencies: ["CodexMeterCore"]),

@@ -188,7 +188,7 @@ public enum MenuBarFormatter {
         let isCached = quota.map { stale || $0.source == .logCache || $0.isStale } ?? false
         func window(_ metric: MenuBarMetric, _ value: QuotaWindow?) -> MenuBarItem {
             let windowLabel = metric == .fiveHour ? "5h" : "7d"
-            let accessibleWindow = metric == .fiveHour ? "5-hour quota" : "7-day quota"
+            let accessibleWindow = metric == .fiveHour ? L10n.text("5-hour quota") : L10n.text("7-day quota")
             let label: String
             switch options.quotaLabelStyle {
             case .ai: label = "AI "
@@ -199,7 +199,7 @@ public enum MenuBarFormatter {
             var title = label + (value.map { "\(Int($0.remainingPercent.rounded()))" + (options.showPercentSign ? "%" : "") } ?? (quota == nil ? "—" : "N/A"))
             var accessibility = accessibleWindow
             if let value {
-                accessibility += ", \(Int(value.remainingPercent.rounded())) percent remaining"
+                accessibility += L10n.text(", \(Int(value.remainingPercent.rounded())) percent remaining")
                 if options.showCountdown {
                     let remaining = countdown(until: value.resetsAt, now: now, style: options.countdownStyle)
                     switch options.countdownSeparator {
@@ -208,14 +208,14 @@ public enum MenuBarFormatter {
                     case .slash: title += " / " + remaining
                     case .parentheses: title += " (" + remaining + ")"
                     }
-                    accessibility += ", resets in " + remaining
+                    accessibility += L10n.text(", resets in ") + remaining
                 }
             } else {
-                accessibility += quota == nil ? ", data unavailable" : ", window not reported by this account"
+                accessibility += quota == nil ? L10n.text(", data unavailable") : L10n.text(", window not reported by this account")
             }
             if isCached {
                 title += " *"
-                accessibility += ", cached data, may be outdated"
+                accessibility += L10n.text(", cached data, may be outdated")
             }
             return MenuBarItem(metric: metric, title: title, accessibilityLabel: accessibility,
                                symbolName: options.quotaLabelStyle == .icon ? (metric == .fiveHour ? "clock" : "calendar") : nil,
@@ -227,10 +227,10 @@ public enum MenuBarFormatter {
             let precision = options.tpsDecimals > 0 ? 1 : 0
             let value = sample.map { String(format: "%.*f", precision, $0.tokensPerSecond) } ?? "—"
             result.append(MenuBarItem(metric: .tps, title: value + (options.showTPSLabel ? " TPS" : ""),
-                                      accessibilityLabel: sample == nil ? "Latest response speed unavailable" :
-                                        "Latest completed response, \(value) effective tokens per second", tpsValue: value))
+                                      accessibilityLabel: sample == nil ? L10n.text("Latest response speed unavailable") :
+                                        L10n.text("Latest completed response, \(value) effective tokens per second"), tpsValue: value))
         }
-        return result.isEmpty ? [MenuBarItem(metric: .fallback, title: "AI", accessibilityLabel: "CodexMeter, open details",
+        return result.isEmpty ? [MenuBarItem(metric: .fallback, title: "AI", accessibilityLabel: L10n.text("CodexMeter, open details"),
                                             symbolName: options.quotaLabelStyle == .icon ? "sparkles" : nil,
                                             usesGPTLogo: options.quotaLabelStyle == .gpt)] : result
     }

@@ -31,7 +31,7 @@ import SwiftUI
         self.defaults = defaults
         self.client = client
         currentVersion = AppReleaseVersion(version)
-        automaticallyChecks = defaults.bool(forKey: "automaticallyCheckForUpdates")
+        automaticallyChecks = defaults.object(forKey: "automaticallyCheckForUpdates") as? Bool ?? AppDefaults.automaticallyCheckForUpdates
         lastChecked = defaults.object(forKey: "lastUpdateCheck") as? Date
         latestVersion = defaults.string(forKey: "latestAppVersion").flatMap(AppReleaseVersion.init)
     }

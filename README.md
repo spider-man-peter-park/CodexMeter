@@ -6,15 +6,15 @@ The menu bar contains **three independent native items**, one for each quota win
 
 | Item | Text |
 | --- | --- |
-| 5-hour quota | `AI 82% 2h14m` |
-| 7-day quota | `AI 61% 4d8h` |
-| Latest response | `73 TPS` |
+| 5-hour quota | GPT icon + `82% · 2h14m` |
+| 7-day quota | GPT icon + `61% · 4d8h` |
+| Latest response | `TPS` stacked above `73` |
 
 These are examples, not hardcoded readings. Each item can be hidden separately and moved independently using the standard macOS Command-drag gesture. Click any item for the common detail panel, including quota bars, response details, account token statistics, remaining reset-credit cards, refresh, settings and Quit. Hovering identifies which quota window an `AI` item represents.
 
 Quota labels can be **AI**, **5h / 7d**, **Window icons**, **GPT icon**, **Custom**, or **None**. The GPT option uses the original black/white OpenAI Blossom assets from the [official logo package](https://cdn.openai.com/brand/OpenAI-Logos-2025.zip), bundled locally, and keeps the two quota items independent. Reset countdowns appear immediately after the remaining percentage and have their own toggle, with compact (`2h14m`, `4d8h`) or clock (`02:14`, `4d08:00`) formatting. TPS has 0/1 decimal-place and suffix controls. Appearance settings include Minimal/Balanced/Elegant presets, 9–16 pt system/rounded/monospaced fonts, weight, monochrome or accent colors, capsule backgrounds, spacing, SF Symbols or custom labels, the percent sign, and countdown separators. Presets preserve which metrics are visible and the refresh periods. If all metrics are hidden, a small `AI` item keeps settings accessible.
 
-The default appearance uses 12 pt semibold text and AI labels, with a solid, high-contrast capsule only on the menu item whose detail panel is open. Closing the panel clears the background. Background settings can also keep capsules always visible or always use plain labels. Filled badges render their text and background together without translucent button layers; plain monochrome labels use native template rendering so macOS controls their menu-bar contrast. Existing saved appearance choices remain available.
+New installations use GPT icons, 12 pt medium system text, compact spacing, dot-separated compact countdowns, and stacked TPS with no decimal places. All three menu bar metrics and their labels remain visible. A solid, high-contrast capsule appears only on the menu item whose detail panel is open. Closing the panel clears the background. Background settings can also keep capsules always visible or always use plain labels. Filled badges render their text and background together without translucent button layers; plain monochrome labels use native template rendering so macOS controls their menu-bar contrast. Existing saved preferences take priority over these defaults.
 
 The panel closes when you click another application or switch away, including after editing settings. Pending anchor changes are cancelled on dismissal so changing metric visibility cannot reopen it after an outside click.
 
@@ -52,15 +52,47 @@ For a complete removal of CodexMeter's own preferences and derived checkpoints, 
 
 When publishing an update, upload and verify the app archive first, then update `Casks/codexmeter.rb` with its version, immutable commit URL and SHA-256, together with the public `updates.json` version. Update the tap with `brew update` to make that version available through `brew upgrade`.
 
-Launch at login is off until enabled in Settings. Install in Applications before enabling it. macOS may require approval in System Settings → General → Login Items. All other settings are grouped in the popover: appearance presets and typography, labels and visible metrics, refresh periods, and general settings. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown keeps ticking at the selected display period.
+New installations request Launch at Login once on first launch. Install in Applications before opening the app; macOS may require approval in System Settings → General → Login Items. Existing installations keep their current system login-item state, and later launches do not re-enable a disabled item. Change this option in Settings at any time. All other settings are grouped in the popover: appearance presets and typography, labels and visible metrics, refresh periods, and general settings. Automatic refresh controls background quota and log checks; manual refresh always works. The local countdown keeps ticking at the selected display period.
 
-Settings are also available in a native, reusable window through **Settings…** or **Command-,** while CodexMeter is active. Right-click a menu bar item for Settings, About, update checks, GitHub, feedback and Quit. Closing Settings leaves the menu bar app running. About uses the bundle's version, build number, icon and copyright; the version is also shown beside the app name in the detail panel.
+Settings are also available in a native, reusable window through **Settings…** or **Command-,** while CodexMeter is active. Right-click a menu bar item for Settings, About, update checks, GitHub, feedback and Quit. Closing Settings leaves the menu bar app running. About uses the bundle's version, build number, icon and copyright. The detail header omits the version badge.
+
+### Interface design
+
+The 0.4 interface uses flat detail sections, a compact subscription nameplate, consistent monospaced metrics and semantic light/dark surfaces. Settings has a resizable native window with six sidebar categories; the existing inline settings remain available. Every existing preference and data behavior is retained. The font-size minus/plus buttons adjust the existing 9–16 pt preference in one-point steps.
+
+See [design.md](design.md) for typography, spacing, components, official references and the actual screenshot review record. UI preview launch arguments affect only the current process and never overwrite the user's saved language, section layout or system appearance. Version 0.4.0 includes this interface update and the documented default configuration.
 
 The Subscription row displays the plan identifier reported by Codex with a readable label, such as Plus or Pro Lite. Explicit identifiers such as `pro5x` and `pro10x` display their multiplier. A generic `pro` or `prolite` response does not include an account-specific allowance multiplier, so the app does not guess one or turn a temporary usage promotion into a subscription label.
+
+### Detail panel layout
+
+The detail header uses “Know your limits. Keep your focus.” and omits the version badge; the version remains available in About. Opening details from a menu bar item does not activate a covered Settings window. The current subscription appears as a distinct nameplate. Reset credits sit at the bottom of Plan limits as a collapsed count/expiry summary; expand the row for the returned card details. Today · this Mac shows the local token counts followed by the account’s latest seven reported dates; account totals are never added to the local estimate. The local date/timezone, estimate badges, token-detail disclosure, update time and account-report status rows are omitted from this compact card. Scope and partial-estimate information remains in hover help. Account usage keeps lifetime/streak statistics and the expandable daily token history. Longer explanations and local estimate qualifiers are available through hover help; cached and unavailable states retain brief status labels.
+
+Settings → Detail panel layout lists all five sections: Plan limits, Today · this Mac, Latest response, Account usage and Settings. The default shows the first three sections and hides Account usage and inline Settings. Use the up/down arrows to arrange them and the switches to show or hide each section. Hidden sections retain their positions. Layout choices persist across restarts and language changes independently of menu bar items and data-refresh preferences. Default layout restores only this section layout. The fixed footer’s Settings button and Command-, remain available even if every section is hidden. Hiding a section changes presentation only; monitoring and reminders continue according to their own settings.
+
+### Language
+
+CodexMeter supports English and Simplified Chinese. Settings → General → Language offers Follow System, 简体中文 and English. The default follows the preferred app/system language, with English as the fallback for other languages. Switching takes effect immediately for details, settings, menus, charts and status hints. New notification content uses the selected language; notifications already scheduled by macOS retain their original text. Subscription/model identifiers, custom labels, TPS, compact Token units and menu bar countdown units remain unchanged.
 
 ### Update checks
 
 Automatically Check for Updates is off by default. When enabled, CodexMeter checks the project's public `updates.json` about every 12 hours, with a manual Check for Updates action available at any time. It only announces newer versions and opens the project page; installation remains manual or through Homebrew. Checks have a timeout, avoid overlapping requests and back off after failures. Disabling the switch cancels an ongoing check and removes the update-check timer.
+
+### Quota and reset-credit notifications
+
+The default configuration enables Low quota alerts, Quota recovery alerts and Reset credit expiry reminders, monitors both quota windows at 10%, and selects three days before credit expiry. Existing saved notification preferences, including disabled alerts, are preserved. On a new installation, click Enable Notifications in Settings → Notifications to grant macOS permission; startup never requests permission automatically. If permission is denied, allow CodexMeter in System Settings → Notifications; returning to the app refreshes its permission status.
+
+Quota alerts can monitor the 5-hour and 7-day windows independently. Choose 20% and 10%, 10%, or 5% thresholds. Crossing several thresholds between reads produces one alert at the most urgent level. Delivery acknowledgements persist across restarts. Recovery requires an observed low reading followed by a successful live reading at least five percentage points above the highest selected threshold (15% with the default threshold). Minor fluctuations do not repeatedly rearm alerts. A passed reset countdown, cached logs, saved snapshots or a missing window cannot manufacture a recovery notification.
+
+Reset-credit reminders support three days, one day, or both before expiry. Only cards explicitly reported as available with a known future expiry are eligible; unknown status, missing detail rows and count-only responses never produce guessed reminders. Fresh authoritative reads cancel scheduled notifications for used, missing or expired cards. Disabling expiry reminders cancels their pending notifications. Already scheduled notifications can be delivered by macOS while the app is closed or offline, so their wording explicitly refers to the last reported availability; a card consumed elsewhere cannot be discovered until a new successful read.
+
+Enable Automatic Refresh for background quota monitoring. Notification clicks open the detail panel. Notification content excludes card IDs, account identifiers, session paths and conversation content. Notifications are local; no push server or account credentials are required.
+
+### Wake and network recovery
+
+With Automatic Refresh enabled, macOS wake and a network-path transition from unavailable to available request a single calibration of quota, account statistics and local responses. The initial network-path callback does not duplicate the launch refresh. Events within three seconds are merged, in-flight reads are reused, and recent attempts retain minimum intervals of 60 seconds for quota and 300 seconds for account statistics. Repeated failures extend the recovery cooldown exponentially, capped at 15 and 30 minutes respectively. This adds no network reachability polling or repeated automatic retry loop, and a satisfied network path is not a guarantee that the Codex service is reachable.
+
+Pending calibration is cancelled on sleep, app termination or disabling Automatic Refresh. A wake still updates the local countdown when automatic reads are disabled. Manual refresh remains available. The existing quota calculation, App Server protocol, cache format and TPS parsing are unchanged.
 
 ## Build and test
 
@@ -115,6 +147,22 @@ Token counts in the detail panel use decimal K/M/B/T units with at most one deci
 Daily buckets retain the exact `YYYY-MM-DD` labels reported by Codex. Reporting may lag; the latest returned day is explicitly labeled and a missing current day is never shown as zero or silently substituted with the preceding day. All returned dates can be expanded. Null summary fields stay unavailable. Separate timestamps and stale indicators identify cached account statistics after failures or restart. Only the whitelisted counters, dates and plan label are retained; account email, account IDs, avatars and thread-level usage are not persisted.
 
 The detail panel includes an interactive line chart of the seven calendar days ending on the latest reported date, with its exact range shown. Select a day to inspect its token count. Missing dates remain gaps and are not joined across or counted as zero; explicitly reported zeroes are plotted at zero. The chart uses the same compact K/M/B/T labels and read-only account statistics as the daily list, with no additional queries or stored history.
+
+### Today on this Mac
+
+The separate **Today · this Mac** card estimates input plus output tokens recorded since midnight in the Mac's current time zone. Cached input is already part of input, and reasoning output is already part of output; their optional detail counters are never added twice. Counts follow each usage record's timestamp, so a response spanning midnight is assigned when its usage is reported. Daily totals are independent of whether a response has enough timing evidence to calculate TPS.
+
+Only explicitly identified Desktop sessions and subagents traceable to those sessions are counted. Known CLI and automatic review sessions are excluded; unidentifiable or unsupported records are not guessed. This covers locally available logs, not a guaranteed account-wide total across devices or cloud tasks. The account's daily buckets keep their original server dates and are never added to the local estimate.
+
+Startup backfills today's modified logs, including long-running sessions created on earlier days. A bounded migration upgrades the existing checkpoint without losing the last valid TPS sample; ordinary reads remain incremental. Response IDs and cumulative-counter aliases deduplicate modern/legacy copies, archival moves, restarts and replay. Forked parent usage cannot become a child's new usage. Mixed schemas without enough identity evidence are reported as partial instead of counted twice.
+
+The app keeps only three days of whitelisted usage counters, UTC timestamps and hashed identities so current-day totals can be recomputed after restart or time-zone changes. Checkpoints are private and contain no conversation bodies, project paths or authentication information. A 100,000-record safety limit and unreadable/unsupported data produce a partial-estimate warning. Backfill progress is explicit; unavailable counts are not shown as zero. After midnight with Automatic Refresh off, manually refresh to populate the new day.
+
+### Recent TPS chart
+
+The Latest response card also plots the **last 30 valid completed responses**, ordered oldest to newest by completion time. The horizontal axis is response order, not equal elapsed-time intervals. Select a point for its model, TPS and completion time. Lines break when the model changes; the existing effective-TPS calculation is unchanged. Invalid or unmeasurable responses are omitted, never plotted as zero, and fewer than 30 available samples remain a shorter series.
+
+History is bounded, persisted, backfilled and deduplicated across sessions and restarts. The existing Desktop-first source policy applies; if only unattributed samples are available, a warning explains that CLI responses may be included. The chart is a recent local observation, not a comparison benchmark between models.
 
 
 ## Remaining reset credits

@@ -6,6 +6,7 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+    private var installedLanguage: AppLanguage?
     private var statusItems: [MenuBarMetric: NSStatusItem] = [:]
     private var anchorMetric: MenuBarMetric?
     private let popover = NSPopover()
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var popoverGeneration = 0
     private var popoverRequested = false
     private var relocatingPopover = false
+    private var interruptionMonitor: InterruptionMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -34,10 +36,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = controller
         model.changed = { [weak self] in self?.updateStatusItems() }
         appearanceObservation = NSApplication.shared.observe(\.effectiveAppearance) { [weak self] _, _ in
-            Task { @MainActor in self?.updateStatusItems() }
+            Task { @MainActor in
+                self?.popover.appearance = NSApplication.shared.effectiveAppearance
+                self?.updateStatusItems()
+            }
         }
         updateStatusItems()
+        model.applyInitialLoginPreference()
+        model.reminders.activateSystemNotifications { [weak self] in
+            Task { @MainActor in
+                guard let self, let button = self.firstButton else { return }
+                self.showPopover(button)
+            }
+        }
         model.start()
+        interruptionMonitor = InterruptionMonitor(sleep: { [weak self] in self?.model.systemWillSleep() },
+            wake: { [weak self] in self?.model.systemDidWake(canRefresh: $0) },
+            connection: { [weak self] available, recovered in self?.model.networkPathChanged(available: available, recovered: recovered) })
+        interruptionMonitor?.start()
         updates.start()
         if CommandLine.arguments.contains("--show-settings") {
             DispatchQueue.main.async { [weak self] in self?.showSettings(nil) }
@@ -51,11 +67,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         finishPopoverInteraction()
+        interruptionMonitor?.stop()
         model.stop()
         updates.stop()
     }
 
-    func applicationDidBecomeActive(_ notification: Notification) { model.refreshLoginStatus() }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        model.refreshLoginStatus()
+        model.reminders.refreshAuthorization()
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
@@ -77,6 +97,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func updateStatusItems() {
+        if installedLanguage != model.language {
+            installedLanguage = model.language
+            installApplicationMenu()
+            settingsController?.window?.title = L10n.text("CodexMeter Settings")
+        }
         let descriptors = MenuBarFormatter.items(quota: model.quota, sample: model.sample,
             options: model.options, now: model.now, stale: model.quotaWarning != nil)
         let needed = Set(descriptors.map(\.metric))
@@ -113,15 +138,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             button.setAccessibilityLabel(descriptor.accessibilityLabel)
             button.setAccessibilityValue(descriptor.title)
-            var tooltip = descriptor.accessibilityLabel + " · Click for details"
+            var tooltip = descriptor.accessibilityLabel + L10n.text(" · Click for details")
             if descriptor.metric == .tps {
-                if let sample = model.sample { tooltip += "\nResponse completed: \(sample.completedAt.formatted())" }
-                if model.latestUnmeasurable { tooltip += "\nShowing the last response with reliable timing" }
+                if let sample = model.sample { tooltip += L10n.text("\nResponse completed: \(sample.completedAt.formatted(.dateTime.locale(L10n.locale)))") }
+                if model.latestUnmeasurable { tooltip += L10n.text("\nShowing the last response with reliable timing") }
             } else if let quota = model.quota {
-                tooltip += "\nQuota updated: \(quota.updatedAt.formatted())"
-                if let reset = window?.resetsAt { tooltip += "\nResets: \(reset.formatted())" }
+                tooltip += L10n.text("\nQuota updated: \(quota.updatedAt.formatted(.dateTime.locale(L10n.locale)))")
+                if let reset = window?.resetsAt { tooltip += L10n.text("\nResets: \(reset.formatted(.dateTime.locale(L10n.locale)))") }
                 if quota.isStale || quota.source == .logCache || model.quotaWarning != nil {
-                    tooltip += "\n* Cached quota; may be outdated"
+                    tooltip += L10n.text("\n* Cached quota; may be outdated")
                 }
             }
             button.toolTip = tooltip
@@ -160,10 +185,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func schedulePopover(on button: NSStatusBarButton? = nil, after delay: TimeInterval = 0) {
         cancelScheduledPopover()
         let generation = popoverGeneration
+        let expectedApplication = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let work = DispatchWorkItem { [weak self, weak button] in
             guard let self, self.popoverRequested, self.popoverGeneration == generation else { return }
             self.pendingPopoverWork = nil
-            guard NSApplication.shared.isActive,
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == expectedApplication,
                   let button = button ?? self.firstButton else {
                 self.dismissPopover()
                 return
@@ -212,7 +238,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         monitorOutsideClicks()
         let screenHeight = button.window?.screen?.visibleFrame.height ?? 800
         popoverController?.rootView.panelHeight = min(740, max(180, screenHeight - 60))
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        // Match app appearance rather than the menu bar anchor's wallpaper-dependent appearance.
+        popover.appearance = NSApplication.shared.effectiveAppearance
+        // A status-item popover must not raise the app's background settings window.
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         updateStatusItems()
@@ -223,16 +251,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let application = NSMenuItem(title: AppMetadata.name, action: nil, keyEquivalent: "")
         application.submenu = makeActionMenu()
         menu.addItem(application)
-        let file = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
-        let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        let file = NSMenuItem(title: L10n.text("File"), action: nil, keyEquivalent: "")
+        let fileMenu = NSMenu(title: L10n.text("File"))
+        fileMenu.addItem(NSMenuItem(title: L10n.text("Close Window"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
         file.submenu = fileMenu
         menu.addItem(file)
-        let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
-        let editMenu = NSMenu(title: "Edit")
-        for (title, action, key) in [("Undo", "undo:", "z"), ("Cut", "cut:", "x"),
-                                     ("Copy", "copy:", "c"), ("Paste", "paste:", "v"),
-                                     ("Select All", "selectAll:", "a")] {
+        let edit = NSMenuItem(title: L10n.text("Edit"), action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: L10n.text("Edit"))
+        for (title, action, key) in [(L10n.text("Undo"), "undo:", "z"), (L10n.text("Cut"), "cut:", "x"),
+                                     (L10n.text("Copy"), "copy:", "c"), (L10n.text("Paste"), "paste:", "v"),
+                                     (L10n.text("Select All"), "selectAll:", "a")] {
             editMenu.addItem(NSMenuItem(title: title, action: NSSelectorFromString(action), keyEquivalent: key))
         }
         edit.submenu = editMenu
@@ -247,15 +275,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             item.target = self
             menu.addItem(item)
         }
-        add("About CodexMeter", #selector(showAbout(_:)))
+        add(L10n.text("About CodexMeter"), #selector(showAbout(_:)))
         menu.addItem(.separator())
-        add("Settings…", #selector(showSettings(_:)), key: ",")
-        add("Check for Updates…", #selector(checkForUpdates(_:)))
+        add(L10n.text("Settings…"), #selector(showSettings(_:)), key: ",")
+        add(L10n.text("Check for Updates…"), #selector(checkForUpdates(_:)))
         menu.addItem(.separator())
-        add("CodexMeter on GitHub", #selector(openProject(_:)))
-        add("Report an Issue…", #selector(reportIssue(_:)))
+        add(L10n.text("CodexMeter on GitHub"), #selector(openProject(_:)))
+        add(L10n.text("Report an Issue…"), #selector(reportIssue(_:)))
         menu.addItem(.separator())
-        add("Quit CodexMeter", #selector(quit(_:)), key: "q")
+        add(L10n.text("Quit CodexMeter"), #selector(quit(_:)), key: "q")
         return menu
     }
 
@@ -265,13 +293,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if settingsController == nil {
             let controller = NSHostingController(rootView: SettingsWindowView(model: model, updates: updates))
             let window = NSWindow(contentViewController: controller)
-            window.title = "CodexMeter Settings"
-            window.styleMask = [.titled, .closable]
+            window.title = L10n.text("CodexMeter Settings")
+            window.styleMask = [.titled, .closable, .resizable]
             let height = min(600, max(280, (NSScreen.main?.visibleFrame.height ?? 800) - 100))
-            window.setContentSize(NSSize(width: 470, height: height))
+            window.setContentSize(NSSize(width: 740, height: height))
+            window.minSize = NSSize(width: 680, height: 460)
             window.isReleasedWhenClosed = false
             window.setFrameAutosaveName("CodexMeter.Settings")
             if !window.setFrameUsingName("CodexMeter.Settings") { window.center() }
+            if window.frame.width < 680 {
+                window.setContentSize(NSSize(width: 740, height: height))
+            }
             settingsController = NSWindowController(window: window)
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -281,9 +313,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc private func showAbout(_ sender: Any?) {
         dismissPopover()
-        let credits = NSMutableAttributedString(string: "Codex Desktop quota, tokens and response speed.\n\n")
-        for (title, url) in [("GitHub", AppMetadata.projectURL), ("Report an Issue", AppMetadata.issuesURL),
-                             ("MIT License", AppMetadata.licenseURL)] {
+        let credits = NSMutableAttributedString(string: L10n.text("Codex Desktop quota, tokens and response speed.\n\n"))
+        for (title, url) in [("GitHub", AppMetadata.projectURL), (L10n.text("Report an Issue"), AppMetadata.issuesURL),
+                             (L10n.text("MIT License"), AppMetadata.licenseURL)] {
             credits.append(NSAttributedString(string: title + "\n", attributes: [.link: url]))
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -305,7 +337,7 @@ struct CodexMeterMain {
                 if SMAppService.mainApp.status != .notRegistered { try SMAppService.mainApp.unregister() }
                 exit(0)
             }
-            catch { fputs("Remove CodexMeter from Login Items before uninstalling.\n", stderr); exit(1) }
+            catch { fputs(L10n.text("Remove CodexMeter from Login Items before uninstalling.\n"), stderr); exit(1) }
         }
         if CommandLine.arguments.contains("--diagnose") {
             Task { @MainActor in
@@ -321,7 +353,20 @@ struct CodexMeterMain {
             return
         }
         let application = NSApplication.shared
+        if CommandLine.arguments.contains("--ui-preview-english") {
+            var previewArguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            previewArguments["appLanguage"] = "en"
+            UserDefaults.standard.setVolatileDomain(previewArguments, forName: UserDefaults.argumentDomain)
+        }
+        if CommandLine.arguments.contains("--ui-preview-all-sections"),
+           let layout = try? JSONEncoder().encode(DetailLayout()) {
+            var previewArguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            previewArguments["detailLayout"] = layout
+            UserDefaults.standard.setVolatileDomain(previewArguments, forName: UserDefaults.argumentDomain)
+        }
         let delegate = AppDelegate()
+        if CommandLine.arguments.contains("--ui-preview-light") { application.appearance = NSAppearance(named: .aqua) }
+        if CommandLine.arguments.contains("--ui-preview-dark") { application.appearance = NSAppearance(named: .darkAqua) }
         application.delegate = delegate
         withExtendedLifetime(delegate) { application.run() }
     }

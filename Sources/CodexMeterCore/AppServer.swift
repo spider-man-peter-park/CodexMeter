@@ -7,14 +7,14 @@ public enum AppServerError: Error, LocalizedError, Sendable, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .executableMissing: "Codex executable not found. Open or install Codex Desktop."
-        case .launchFailed: "Could not start the Codex App Server."
-        case .timeout: "Codex App Server timed out."
-        case .invalidResponse: "Codex App Server returned an unsupported response."
-        case .notSignedIn: "Sign in through Codex Desktop to read plan limits."
-        case .queryFailed: "Codex account information is temporarily unavailable."
-        case .unsupportedMethod: "This version of Codex does not support the requested account query."
-        case .cancelled: "Codex App Server query was cancelled."
+        case .executableMissing: L10n.text("Codex executable not found. Open or install Codex Desktop.")
+        case .launchFailed: L10n.text("Could not start the Codex App Server.")
+        case .timeout: L10n.text("Codex App Server timed out.")
+        case .invalidResponse: L10n.text("Codex App Server returned an unsupported response.")
+        case .notSignedIn: L10n.text("Sign in through Codex Desktop to read plan limits.")
+        case .queryFailed: L10n.text("Codex account information is temporarily unavailable.")
+        case .unsupportedMethod: L10n.text("This version of Codex does not support the requested account query.")
+        case .cancelled: L10n.text("Codex App Server query was cancelled.")
         }
     }
 }

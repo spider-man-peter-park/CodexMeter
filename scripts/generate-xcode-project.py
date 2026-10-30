@@ -53,7 +53,7 @@ for name in ['Debug', 'Release']:
 pc = obj('projectConfigs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(projectConfigs)},); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 tc = obj('targetConfigs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(targetConfigs)},); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 target = obj('target', f'isa = PBXNativeTarget; buildConfigurationList = {tc}; buildPhases = ({sources},{frameworks},{resources},); buildRules = (); dependencies = (); name = CodexMeter; packageProductDependencies = ({packageProduct},); productName = CodexMeter; productReference = {product}; productType = "com.apple.product-type.application";')
-project = obj('project', f'isa = PBXProject; attributes = {{ LastUpgradeCheck = 1600; }}; buildConfigurationList = {pc}; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en,Base,); mainGroup = {group}; packageReferences = ({package},); productRefGroup = {products}; projectDirPath = ""; projectRoot = ""; targets = ({target},);')
+project = obj('project', f'isa = PBXProject; attributes = {{ LastUpgradeCheck = 1600; }}; buildConfigurationList = {pc}; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en,Base,"zh-Hans",); mainGroup = {group}; packageReferences = ({package},); productRefGroup = {products}; projectDirPath = ""; projectRoot = ""; targets = ({target},);')
 projectDir = root / 'CodexMeter.xcodeproj'
 projectDir.mkdir(exist_ok=True)
 (projectDir / 'project.pbxproj').write_text('// !$*UTF8*$!\n{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {\n' + '\n'.join(objects) + f'\n}}; rootObject = {project}; }}\n')
