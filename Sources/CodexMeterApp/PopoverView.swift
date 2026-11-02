@@ -119,30 +119,36 @@ struct PopoverView: View {
         HStack(spacing: 12) {
             Text(L10n.text("Subscription")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             Spacer(minLength: 8)
-            Label {
-                Text(SubscriptionPlanLabel.title(for: model.accountInfo?.planType))
-                    .font(.system(size: 16, weight: .semibold)).lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "crown").font(.system(size: 12)).accessibilityHidden(true)
+            Link(destination: AppMetadata.plansURL) {
+                HStack(spacing: 8) {
+                    Label {
+                        Text(SubscriptionPlanLabel.title(for: model.accountInfo?.planType))
+                            .font(.system(size: 16, weight: .semibold)).lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "crown").font(.system(size: 12)).accessibilityHidden(true)
+                    }
+                    Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary).accessibilityHidden(true)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor.opacity(0.18)))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
             }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor.opacity(0.18)))
+            .buttonStyle(.plain)
+            .help(L10n.text("View official plans"))
             .accessibilityElement(children: .combine)
+            .accessibilityHint(L10n.text("View official plans"))
         }
     }
 
     private func quotaRow(_ title: String, symbol: String, window: QuotaWindow?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Label(title, systemImage: symbol).font(.subheadline)
-                Spacer()
-                Text(window.map { "\(Int($0.remainingPercent.rounded()))%" } ?? (model.quota == nil ? "—" : "N/A"))
-                    .font(MeterStyle.numberFont).monospacedDigit()
-                    .foregroundStyle(color(window)).frame(minWidth: 64, alignment: .trailing)
-                if window != nil { Text(L10n.text("left")).font(MeterStyle.captionFont).foregroundStyle(.secondary) }
-            }
+            Label(title, systemImage: symbol).font(MeterStyle.sectionFont)
+            primaryValue(window.map { "\(Int($0.remainingPercent.rounded()))%" } ?? (model.quota == nil ? "—" : "N/A"),
+                         unit: window == nil ? nil : L10n.text("left"), tint: color(window))
             if let window {
                 ProgressView(value: window.remainingPercent, total: 100).tint(color(window))
                 HStack {
@@ -159,17 +165,15 @@ struct PopoverView: View {
 
     private var speedSection: some View {
         VStack(alignment: .leading, spacing: 11) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    sectionTitle(L10n.text("Latest response"), symbol: "bolt.fill")
-                    Text(model.sample?.model ?? L10n.text("Model unavailable"))
-                        .font(MeterStyle.captionFont).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer()
-                Text(model.sample.map { String(format: "%.1f", $0.tokensPerSecond) } ?? "—")
-                    .font(MeterStyle.numberFont).monospacedDigit()
-                Text("TPS").font(MeterStyle.captionFont).foregroundStyle(.secondary)
+            sectionTitle(L10n.text("Latest response"), symbol: "bolt.fill")
+            primaryValue(model.sample.map { String(format: "%.1f", $0.tokensPerSecond) } ?? "—", unit: "TPS")
+            HStack(spacing: 12) {
+                Text(L10n.text("Tokens per second")).fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                Text(model.sample?.model ?? L10n.text("Model unavailable"))
+                    .lineLimit(1).truncationMode(.middle)
             }
+            .font(MeterStyle.captionFont).foregroundStyle(.secondary)
             if model.sample != nil {
                 if model.latestUnmeasurable {
                     Label(L10n.text("Last valid response"), systemImage: "clock")
@@ -235,9 +239,7 @@ struct PopoverView: View {
             if let usage = model.localDayUsage, usage.matches(model.now) {
                 if usage.hasDesktopLogs && (usage.logsAvailable || usage.responses > 0) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(TokenCountFormatter.compact(usage.displayTotal(at: model.now)))
-                            .font(MeterStyle.numberFont).monospacedDigit()
-                        Text(L10n.text("tokens")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
+                        primaryValue(TokenCountFormatter.compact(usage.displayTotal(at: model.now)), unit: L10n.text("tokens"))
                         Spacer()
                         Text(L10n.text("\(usage.responses) usage records")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
                     }
@@ -294,17 +296,24 @@ struct PopoverView: View {
     }
 
     private var resetCreditsSection: some View {
-        DisclosureGroup(isExpanded: $disclosure.resetCredits) {
-            resetCreditDetails.padding(.top, 8)
-        } label: {
-            HStack(spacing: 8) {
-                Label(L10n.text("Reset credits"), systemImage: "arrow.counterclockwise.circle")
-                Spacer(minLength: 4)
-                Text(resetCreditSummary)
-                    .fontWeight(.medium).monospacedDigit().lineLimit(1).minimumScaleFactor(0.85)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            Button { disclosure.resetCredits.toggle() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: disclosure.resetCredits ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                        .frame(width: 10).accessibilityHidden(true)
+                    Label(L10n.text("Reset credits"), systemImage: "arrow.counterclockwise.circle")
+                    Spacer(minLength: 4)
+                    Text(resetCreditSummary)
+                        .fontWeight(.medium).monospacedDigit().lineLimit(1).minimumScaleFactor(0.85)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityValue(disclosure.resetCredits ? L10n.text("Expanded") : L10n.text("Collapsed"))
+            if disclosure.resetCredits { resetCreditDetails.padding(.top, 8) }
         }
         .font(MeterStyle.captionFont)
     }
@@ -361,9 +370,6 @@ struct PopoverView: View {
             }
             detailRow(L10n.text("Granted"), value: credit.grantedAt.map(Self.creditDate) ?? L10n.text("Not provided"))
             detailRow(L10n.text("Expires"), value: credit.expiresAt.map(Self.creditDate) ?? L10n.text("Not provided"))
-            if let description = credit.description, !description.isEmpty {
-                Text(L10n.lookup(description)).font(MeterStyle.captionFont).foregroundStyle(.secondary)
-            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -381,6 +387,13 @@ struct PopoverView: View {
     private func sectionTitle(_ title: String, symbol: String) -> some View {
         Label(title, systemImage: symbol.replacingOccurrences(of: ".fill", with: ""))
             .font(MeterStyle.sectionFont).foregroundStyle(.primary)
+    }
+
+    private func primaryValue(_ value: String, unit: String? = nil, tint: Color = .primary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(value).font(MeterStyle.numberFont).monospacedDigit().foregroundStyle(tint)
+            if let unit { Text(unit).font(MeterStyle.captionFont).foregroundStyle(.secondary) }
+        }
     }
 
     private static func creditDate(_ value: Date) -> String {

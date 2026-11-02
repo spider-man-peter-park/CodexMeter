@@ -60,7 +60,11 @@ final class AppModel: ObservableObject {
     @Published var language: AppLanguage {
         didSet { defaults.set(language.rawValue, forKey: "appLanguage"); changed?() }
     }
+    @Published var appearance: AppAppearance {
+        didSet { defaults.set(appearance.rawValue, forKey: "appAppearance"); appearanceChanged?() }
+    }
     var changed: (() -> Void)?
+    var appearanceChanged: (() -> Void)?
     let reminders: AppReminders
     let initialLoginPreference: Bool?
 
@@ -107,10 +111,11 @@ final class AppModel: ObservableObject {
                                  "quotaLabelStyle", "countdownStyle", "tpsDecimals", "showTPSLabel"]
         let hasLegacyDisplay = legacyDisplayKeys.contains { defaults.object(forKey: $0) != nil }
         let hasSavedPreferences = (legacyDisplayKeys + ["displaySchemaVersion", "displayOptions", "detailLayout",
-            "refreshOptions", "reminderOptions", "appLanguage", "autoRefresh", "automaticallyCheckForUpdates"])
+            "refreshOptions", "reminderOptions", "appLanguage", "appAppearance", "autoRefresh", "automaticallyCheckForUpdates"])
             .contains { defaults.object(forKey: $0) != nil }
         initialLoginPreference = hasSavedPreferences ? nil : AppDefaults.launchAtLogin
         language = AppLanguage(rawValue: defaults.string(forKey: "appLanguage") ?? "") ?? AppDefaults.language
+        appearance = AppAppearance(rawValue: defaults.string(forKey: "appAppearance") ?? "") ?? .system
         detailLayout = defaults.data(forKey: "detailLayout")
             .flatMap { try? JSONDecoder().decode(DetailLayout.self, from: $0) } ?? AppDefaults.detailLayout
         self.readQuota = readQuota

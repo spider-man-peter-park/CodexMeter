@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model = AppModel()
     private let updates = AppUpdates()
     private var settingsController: NSWindowController?
+    private var detailPreviewController: NSWindowController?
     private var popoverController: NSHostingController<PopoverView>?
     private var appearanceObservation: NSKeyValueObservation?
     private var outsideMouseMonitor: Any?
@@ -25,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
+        model.appearanceChanged = { [weak self] in self?.applyAppearance() }
+        if !CommandLine.arguments.contains("--ui-preview-light") && !CommandLine.arguments.contains("--ui-preview-dark") {
+            applyAppearance()
+        }
         installApplicationMenu()
         popover.behavior = .transient
         popover.delegate = self
@@ -56,7 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             connection: { [weak self] available, recovered in self?.model.networkPathChanged(available: available, recovered: recovered) })
         interruptionMonitor?.start()
         updates.start()
-        if CommandLine.arguments.contains("--show-settings") {
+        if CommandLine.arguments.contains("--ui-preview-detail-window") {
+            DispatchQueue.main.async { [weak self] in self?.showDetailPreview() }
+        } else if CommandLine.arguments.contains("--show-settings") {
             DispatchQueue.main.async { [weak self] in self?.showSettings(nil) }
         } else if CommandLine.arguments.contains("--show-popover") || CommandLine.arguments.contains("--inspect-ui") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -64,6 +71,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.showPopover(button)
             }
         }
+    }
+
+    private func applyAppearance() {
+        NSApplication.shared.appearance = model.appearance.nativeAppearance
+    }
+
+    private func showDetailPreview() {
+        let height = min(740, max(180, (NSScreen.main?.visibleFrame.height ?? 800) - 100))
+        let controller = NSHostingController(rootView: PopoverView(model: model, updates: updates,
+            onOpenSettings: { [weak self] in self?.showSettings(nil) },
+            onOpenAbout: { [weak self] in self?.showAbout(nil) }, panelHeight: height))
+        let window = NSWindow(contentViewController: controller)
+        window.title = "CodexMeter · Detail preview"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 420, height: height))
+        window.isReleasedWhenClosed = false
+        window.center()
+        detailPreviewController = NSWindowController(window: window)
+        NSApp.activate(ignoringOtherApps: true)
+        detailPreviewController?.showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

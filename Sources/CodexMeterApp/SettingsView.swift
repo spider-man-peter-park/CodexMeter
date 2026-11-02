@@ -235,26 +235,71 @@ struct SettingsContent: View {
     private var layoutSettings: some View {
         settingsGroup(.metrics) {
             VStack(alignment: .leading, spacing: 12) {
-                menuPicker(L10n.text("Quota labels"), selection: $model.options.quotaLabelStyle) {
-                    Text("AI").tag(QuotaLabelStyle.ai)
-                    Text("5h / 7d").tag(QuotaLabelStyle.window)
-                    Text(L10n.text("Window icons")).tag(QuotaLabelStyle.icon)
-                    Text(L10n.text("GPT icon")).tag(QuotaLabelStyle.gpt)
-                    Text(L10n.text("Custom")).tag(QuotaLabelStyle.custom)
-                    Text(L10n.text("None")).tag(QuotaLabelStyle.none)
-                }
-                if model.options.quotaLabelStyle == .custom {
-                    TextField(L10n.text("Custom label · up to 12 characters"), text: Binding(
-                        get: { model.options.customQuotaLabel },
-                        set: { model.options.customQuotaLabel = DisplayOptions.sanitizeQuotaLabel($0) }))
-                        .textFieldStyle(.roundedBorder)
-                }
                 if model.fiveHourAvailable != false {
-                    settingsToggle(L10n.text("Show 5-hour quota"), isOn: $model.options.showFiveHour)
+                    metricSettings(L10n.text("Show 5-hour quota"), isOn: $model.options.showFiveHour,
+                                   detailsTitle: L10n.text("Quota display options")) {
+                        quotaDisplaySettings
+                    }
+                    Divider()
                 }
-                settingsToggle(L10n.text("Show 7-day quota"), isOn: $model.options.showWeekly)
-                settingsToggle(L10n.text("Show percent sign"), isOn: $model.options.showPercentSign)
-                settingsToggle(L10n.text("Show reset countdown"), isOn: $model.options.showCountdown)
+                metricSettings(L10n.text("Show 7-day quota"), isOn: $model.options.showWeekly,
+                               detailsTitle: L10n.text("Quota display options")) {
+                    quotaDisplaySettings
+                }
+                Divider()
+                metricSettings(L10n.text("Show TPS"), isOn: $model.options.showTPS,
+                               detailsTitle: L10n.text("TPS display options")) {
+                    segmentedPicker(L10n.text("TPS layout"), selection: $model.options.tpsLayout) {
+                        Text(L10n.text("Inline")).tag(MenuBarTPSLayout.inline)
+                        Text(L10n.text("Stacked")).tag(MenuBarTPSLayout.stacked)
+                    }
+                    segmentedPicker(L10n.text("TPS decimals"), selection: $model.options.tpsDecimals) {
+                        Text("0").tag(0)
+                        Text("1").tag(1)
+                    }
+                    settingsToggle(L10n.text("Show TPS label"), isOn: $model.options.showTPSLabel)
+                    settingsToggle(L10n.text("Show TPS lightning icon"), isOn: $model.options.showTPSIcon)
+                }
+                Divider()
+                settingsToggle(L10n.text("Show today's tokens"), isOn: $model.options.showTodayTokens)
+            }
+        }
+    }
+
+    private func metricSettings<Content: View>(_ title: String, isOn: Binding<Bool>, detailsTitle: String,
+                                              @ViewBuilder details: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            settingsToggle(title, isOn: isOn)
+            if isOn.wrappedValue {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(detailsTitle).font(MeterStyle.sectionFont)
+                    details()
+                }
+                .padding(.leading, 12)
+            }
+        }
+    }
+
+    private var quotaDisplaySettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            note(L10n.text("Applies to visible 5-hour and 7-day quota labels."))
+            menuPicker(L10n.text("Quota labels"), selection: $model.options.quotaLabelStyle) {
+                Text("AI").tag(QuotaLabelStyle.ai)
+                Text("5h / 7d").tag(QuotaLabelStyle.window)
+                Text(L10n.text("Window icons")).tag(QuotaLabelStyle.icon)
+                Text(L10n.text("GPT icon")).tag(QuotaLabelStyle.gpt)
+                Text(L10n.text("Custom")).tag(QuotaLabelStyle.custom)
+                Text(L10n.text("None")).tag(QuotaLabelStyle.none)
+            }
+            if model.options.quotaLabelStyle == .custom {
+                TextField(L10n.text("Custom label · up to 12 characters"), text: Binding(
+                    get: { model.options.customQuotaLabel },
+                    set: { model.options.customQuotaLabel = DisplayOptions.sanitizeQuotaLabel($0) }))
+                    .textFieldStyle(.roundedBorder)
+            }
+            settingsToggle(L10n.text("Show percent sign"), isOn: $model.options.showPercentSign)
+            settingsToggle(L10n.text("Show reset countdown"), isOn: $model.options.showCountdown)
+            if model.options.showCountdown {
                 segmentedPicker(L10n.text("Countdown"), selection: $model.options.countdownStyle) {
                     Text("2h14m").tag(CountdownStyle.compact)
                     Text("02:14").tag(CountdownStyle.clock)
@@ -265,20 +310,6 @@ struct SettingsContent: View {
                     Text(L10n.text("Slash")).tag(CountdownSeparator.slash)
                     Text(L10n.text("Parentheses")).tag(CountdownSeparator.parentheses)
                 }
-                Divider()
-                settingsToggle(L10n.text("Show TPS"), isOn: $model.options.showTPS)
-                segmentedPicker(L10n.text("TPS layout"), selection: $model.options.tpsLayout) {
-                    Text(L10n.text("Inline")).tag(MenuBarTPSLayout.inline)
-                    Text(L10n.text("Stacked")).tag(MenuBarTPSLayout.stacked)
-                }
-                segmentedPicker(L10n.text("TPS decimals"), selection: $model.options.tpsDecimals) {
-                    Text("0").tag(0)
-                    Text("1").tag(1)
-                }
-                settingsToggle(L10n.text("Show TPS label"), isOn: $model.options.showTPSLabel)
-                settingsToggle(L10n.text("Show TPS lightning icon"), isOn: $model.options.showTPSIcon)
-                Divider()
-                settingsToggle(L10n.text("Show today's tokens"), isOn: $model.options.showTodayTokens)
             }
         }
     }
@@ -318,6 +349,11 @@ struct SettingsContent: View {
     private var generalSettings: some View {
         settingsGroup(.general) {
             VStack(alignment: .leading, spacing: 12) {
+                menuPicker(L10n.text("Theme"), selection: $model.appearance) {
+                    Text(L10n.text("Follow System")).tag(AppAppearance.system)
+                    Text(L10n.text("Light")).tag(AppAppearance.light)
+                    Text(L10n.text("Dark")).tag(AppAppearance.dark)
+                }
                 menuPicker(L10n.text("Language"), selection: $model.language) {
                     Text(L10n.text("Follow System")).tag(AppLanguage.system)
                     Text("简体中文").tag(AppLanguage.simplifiedChinese)

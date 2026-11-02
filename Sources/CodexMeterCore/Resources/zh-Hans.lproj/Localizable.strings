@@ -294,3 +294,15 @@
 "Quit" = "退出";
 "Decrease font size" = "减小字号";
 "Increase font size" = "增大字号";
+
+// Detail interactions and theme preferences.
+"Theme" = "主题";
+"Light" = "浅色";
+"Dark" = "深色";
+"Quota display options" = "额度标签选项";
+"TPS display options" = "TPS 标签选项";
+"Applies to visible 5-hour and 7-day quota labels." = "应用于已显示的 5 小时和 7 天额度标签。";
+"View official plans" = "查看官方订阅方案";
+"Tokens per second" = "Tokens per second · 每秒 Token 数";
+"Expanded" = "已展开";
+"Collapsed" = "已收起";

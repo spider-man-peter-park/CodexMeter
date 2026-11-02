@@ -4,6 +4,7 @@ import Foundation
 enum AppMetadata {
     static let name = "CodexMeter"
     static let projectURL = URL(string: "https://github.com/spider-man-peter-park/CodexMeter")!
+    static let plansURL = URL(string: "https://chatgpt.com/pricing/")!
     static let issuesURL = URL(string: "https://github.com/spider-man-peter-park/CodexMeter/issues/new")!
     static let licenseURL = URL(string: "https://github.com/spider-man-peter-park/CodexMeter/blob/main/LICENSE")!
     static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development" }

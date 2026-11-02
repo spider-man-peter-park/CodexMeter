@@ -294,3 +294,15 @@
 "Quit" = "Quit";
 "Decrease font size" = "Decrease font size";
 "Increase font size" = "Increase font size";
+
+// Detail interactions and theme preferences.
+"Theme" = "Theme";
+"Light" = "Light";
+"Dark" = "Dark";
+"Quota display options" = "Quota display options";
+"TPS display options" = "TPS display options";
+"Applies to visible 5-hour and 7-day quota labels." = "Applies to visible 5-hour and 7-day quota labels.";
+"View official plans" = "View official plans";
+"Tokens per second" = "Tokens per second";
+"Expanded" = "Expanded";
+"Collapsed" = "Collapsed";
