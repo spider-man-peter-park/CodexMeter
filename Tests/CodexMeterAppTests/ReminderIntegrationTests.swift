@@ -32,6 +32,14 @@ actor TestReminderCenter: ReminderNotificationCenter {
         return defaults
     }
     private func settle() async throws { try await Task.sleep(for: .milliseconds(80)) }
+    private func waitUntil(_ condition: @MainActor () async -> Bool) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        while !(await condition()) {
+            try #require(clock.now < deadline, "Timed out waiting for recovery refresh completion")
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
     private func snapshot(remaining: Double = 5, credits: ResetCreditSummary? = nil) -> QuotaSnapshot {
         QuotaSnapshot(fiveHour: nil,
             weekly: QuotaWindow(usedPercent: 100 - remaining, windowDurationMins: 10080, resetsAt: Date().addingTimeInterval(86400)),
@@ -187,10 +195,16 @@ actor TestReminderCenter: ReminderNotificationCenter {
             readQuota: { _ in await reads.quota() }, readAccount: { _ in await reads.account() },
             recoveryClock: { clock.now }, recoverySleep: { try await clock.sleep($0) })
         model.start()
-        try await settle()
+        defer { model.stop() }
+        try await waitUntil { !model.refreshing && !model.accountRefreshing }
         #expect(await reads.quotaReads == 1)
+        #expect(await reads.accountReads == 1)
         model.requestRecoveryRefresh(); model.requestRecoveryRefresh(); model.requestRecoveryRefresh()
-        try await Task.sleep(for: .milliseconds(160))
+        try await waitUntil {
+            let quotaReads = await reads.quotaReads
+            let accountReads = await reads.accountReads
+            return quotaReads >= 2 && accountReads >= 2 && !model.refreshing && !model.accountRefreshing
+        }
         #expect(await reads.quotaReads == 2)
         #expect(await reads.accountReads == 2)
         #expect(clock.delays.contains { $0 >= 60 })
@@ -201,9 +215,9 @@ actor TestReminderCenter: ReminderNotificationCenter {
         try await settle()
         #expect(await reads.quotaReads == 2)
         model.refresh()
-        try await settle()
+        try await waitUntil { !model.refreshing && !model.accountRefreshing }
         #expect(await reads.quotaReads == 3)
-        model.stop()
+        #expect(await reads.accountReads == 3)
     }
 
     @Test func inflightSuccessSatisfiesRecoveryAndSleepCancelsPendingWork() async throws {
