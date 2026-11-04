@@ -1,7 +1,7 @@
 import Foundation
 
 public enum DetailSection: String, CaseIterable, Identifiable, Sendable {
-    case quota, today, speed, account, settings
+    case quota, today, speed, account, cpu, gpu, ram, network, settings
     public var id: String { rawValue }
 
     public var title: String {
@@ -10,6 +10,10 @@ public enum DetailSection: String, CaseIterable, Identifiable, Sendable {
         case .today: L10n.text("Today · this Mac")
         case .speed: L10n.text("Latest response")
         case .account: L10n.text("Account usage")
+        case .cpu: L10n.text("CPU usage")
+        case .gpu: L10n.text("GPU usage")
+        case .ram: L10n.text("RAM usage")
+        case .network: L10n.text("Network speed")
         case .settings: L10n.text("Settings")
         }
     }
@@ -20,6 +24,10 @@ public enum DetailSection: String, CaseIterable, Identifiable, Sendable {
         case .today: "square.stack.3d.up.fill"
         case .speed: "bolt.fill"
         case .account: "number.circle.fill"
+        case .cpu: "cpu"
+        case .gpu: "display"
+        case .ram: "memorychip"
+        case .network: "arrow.up.arrow.down"
         case .settings: "gearshape"
         }
     }

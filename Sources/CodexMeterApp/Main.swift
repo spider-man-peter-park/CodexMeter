@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let updates = AppUpdates()
     private var settingsController: NSWindowController?
     private var detailPreviewController: NSWindowController?
+    private var detailPreviewSizeObservation: NSKeyValueObservation?
     private var popoverController: NSHostingController<PopoverView>?
     private var appearanceObservation: NSKeyValueObservation?
     private var outsideMouseMonitor: Any?
@@ -78,14 +79,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func showDetailPreview() {
-        let height = min(740, max(180, (NSScreen.main?.visibleFrame.height ?? 800) - 100))
+        if let flag = CommandLine.arguments.firstIndex(of: "--ui-preview-metric"),
+           CommandLine.arguments.indices.contains(flag + 1),
+           let metric = MenuBarMetric(rawValue: CommandLine.arguments[flag + 1]) {
+            model.selectedDetailSection = metric.detailSection
+            model.selectedQuotaMetric = [.fiveHour, .weekly].contains(metric) ? metric : nil
+        }
+        let height = max(180, (NSScreen.main?.visibleFrame.height ?? 800) - 60)
         let controller = NSHostingController(rootView: PopoverView(model: model, updates: updates,
             onOpenSettings: { [weak self] in self?.showSettings(nil) },
             onOpenAbout: { [weak self] in self?.showAbout(nil) }, panelHeight: height))
+        controller.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: controller)
         window.title = "CodexMeter · Detail preview"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 420, height: height))
+        window.setContentSize(NSSize(width: 480, height: 400))
+        detailPreviewSizeObservation = controller.observe(\.preferredContentSize, options: [.initial, .new]) { [weak window] controller, _ in
+            let size = controller.preferredContentSize
+            Task { @MainActor in
+                guard let window, size.width > 0, size.height > 0 else { return }
+                let top = window.frame.maxY
+                window.setContentSize(size)
+                var frame = window.frame
+                let screen = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
+                frame.origin.y = max(screen.minY, min(top, screen.maxY) - frame.height)
+                window.setFrame(frame, display: true)
+            }
+        }
         window.isReleasedWhenClosed = false
         window.center()
         detailPreviewController = NSWindowController(window: window)
@@ -122,7 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private var firstButton: NSStatusBarButton? {
-        [MenuBarMetric.tps, .todayTokens, .weekly, .fiveHour, .fallback].compactMap { statusItems[$0]?.button }.first
+        [MenuBarMetric.tps, .todayTokens, .weekly, .fiveHour, .cpu, .gpu, .ram, .network, .fallback]
+            .compactMap { statusItems[$0]?.button }.first
     }
 
     private func updateStatusItems() {
@@ -132,7 +153,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             settingsController?.window?.title = L10n.text("CodexMeter Settings")
         }
         let descriptors = MenuBarFormatter.items(quota: model.quota, sample: model.sample,
-            options: model.options, todayUsage: model.localDayUsage, now: model.now, stale: model.quotaWarning != nil)
+            options: model.options, todayUsage: model.localDayUsage, now: model.now, stale: model.quotaWarning != nil,
+            systemMetrics: model.systemMetrics, systemNow: model.systemMetricsNow)
         let needed = Set(descriptors.map(\.metric))
         let reanchor = (popover.isShown || popoverRequested)
             && (anchorMetric.map { !needed.contains($0) } ?? false)
@@ -174,11 +196,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 if model.latestUnmeasurable { tooltip += L10n.text("\nShowing the last response with reliable timing") }
             } else if descriptor.metric == .todayTokens {
                 tooltip += "\n" + L10n.text("Desktop logs and linked subagents, by usage-record time. Other-device or cloud activity without local records is not covered. Separate from account daily totals.")
+            } else if descriptor.metric.isSystemMetric {
+                if let metrics = model.systemMetrics {
+                    tooltip += L10n.text("\nSystem updated: \(metrics.sampledAt.formatted(.dateTime.locale(L10n.locale)))")
+                }
             } else if let quota = model.quota {
                 tooltip += L10n.text("\nQuota updated: \(quota.updatedAt.formatted(.dateTime.locale(L10n.locale)))")
                 if let reset = window?.resetsAt { tooltip += L10n.text("\nResets: \(reset.formatted(.dateTime.locale(L10n.locale)))") }
                 if quota.isStale || quota.source == .logCache || model.quotaWarning != nil {
-                    tooltip += L10n.text("\n* Cached quota; may be outdated")
+                    tooltip += L10n.text("\nCached quota; may be outdated")
                 }
             }
             button.toolTip = tooltip
@@ -270,9 +296,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         cancelScheduledPopover()
         popoverRequested = true
         anchorMetric = MenuBarMetric.allCases[button.tag]
+        model.selectedDetailSection = MenuBarMetric.allCases[button.tag].detailSection
+        let metric = MenuBarMetric.allCases[button.tag]
+        model.selectedQuotaMetric = [.fiveHour, .weekly].contains(metric) ? metric : nil
         monitorOutsideClicks()
         let screenHeight = button.window?.screen?.visibleFrame.height ?? 800
-        popoverController?.rootView.panelHeight = min(740, max(180, screenHeight - 60))
+        popoverController?.rootView.panelHeight = max(180, screenHeight - 60)
         // Match app appearance rather than the menu bar anchor's wallpaper-dependent appearance.
         popover.appearance = NSApplication.shared.effectiveAppearance
         // A status-item popover must not raise the app's background settings window.
@@ -430,7 +459,50 @@ struct CodexMeterMain {
         do { quota = try await AppServerClient().readQuota(codexHome: home); live = true }
         catch { }
         let accountInfo = try? await AppServerClient().readAccountInfo(codexHome: home)
+        let systemMonitor = SystemMetricsMonitor()
+        _ = await systemMonitor.sample()
+        try? await Task.sleep(for: .seconds(6))
+        let systemMetrics = await systemMonitor.sample()
         var output: [String: Any] = ["liveQuota": live]
+        output["systemMetrics"] = [
+            "cpuUsagePercent": systemMetrics.cpuUsagePercent as Any? ?? NSNull(),
+            "gpuUsagePercent": systemMetrics.gpuUsagePercent as Any? ?? NSNull(),
+            "memoryUsagePercent": systemMetrics.memoryUsagePercent as Any? ?? NSNull(),
+            "memoryUsedBytes": systemMetrics.memoryUsedBytes as Any? ?? NSNull(),
+            "memoryTotalBytes": systemMetrics.memoryTotalBytes as Any? ?? NSNull(),
+            "memoryAppBytes": systemMetrics.memoryAppBytes as Any? ?? NSNull(),
+            "memoryWiredBytes": systemMetrics.memoryWiredBytes as Any? ?? NSNull(),
+            "memoryCompressedBytes": systemMetrics.memoryCompressedBytes as Any? ?? NSNull(),
+            "memoryFreeBytes": systemMetrics.memoryFreeBytes as Any? ?? NSNull(),
+            "memorySwapUsedBytes": systemMetrics.memorySwapUsedBytes as Any? ?? NSNull(),
+            "memoryPressure": systemMetrics.memoryPressure?.rawValue as Any? ?? NSNull(),
+            "cpuUserPercent": systemMetrics.cpuUserPercent as Any? ?? NSNull(),
+            "cpuSystemPercent": systemMetrics.cpuSystemPercent as Any? ?? NSNull(),
+            "cpuIdlePercent": systemMetrics.cpuIdlePercent as Any? ?? NSNull(),
+            "physicalCoreCount": systemMetrics.physicalCoreCount as Any? ?? NSNull(),
+            "logicalCoreCount": systemMetrics.logicalCoreCount as Any? ?? NSNull(),
+            "loadAverages": systemMetrics.loadAverages as Any? ?? NSNull(),
+            "gpuDeviceNames": systemMetrics.gpuDeviceNames,
+            "gpuHasUnifiedMemory": systemMetrics.gpuHasUnifiedMemory as Any? ?? NSNull(),
+            "gpuRecommendedWorkingSetBytes": systemMetrics.gpuRecommendedWorkingSetBytes as Any? ?? NSNull(),
+            "gpuRendererUsagePercent": systemMetrics.gpuRendererUsagePercent as Any? ?? NSNull(),
+            "gpuTilerUsagePercent": systemMetrics.gpuTilerUsagePercent as Any? ?? NSNull(),
+            "networkUploadBytesPerSecond": systemMetrics.networkUploadBytesPerSecond as Any? ?? NSNull(),
+            "networkDownloadBytesPerSecond": systemMetrics.networkDownloadBytesPerSecond as Any? ?? NSNull()
+        ]
+        func processOutput(_ process: SystemProcessUsage) -> [String: Any] {
+            ["pid": process.pid, "name": process.name, "memoryBytes": process.memoryBytes as Any? ?? NSNull(),
+             "cpuUsagePercent": process.cpuUsagePercent as Any? ?? NSNull()]
+        }
+        output["cpuTopProcesses"] = systemMetrics.cpuTopProcesses.map(processOutput)
+        output["memoryTopProcesses"] = systemMetrics.memoryTopProcesses.map(processOutput)
+        output["networkTopProcesses"] = systemMetrics.networkTopProcesses.map {
+            ["pid": $0.pid, "name": $0.name, "uploadBytesPerSecond": $0.uploadBytesPerSecond,
+             "downloadBytesPerSecond": $0.downloadBytesPerSecond] as [String: Any]
+        }
+        output["networkProcessesUpdatedAt"] = systemMetrics.networkProcessesUpdatedAt.map {
+            ISO8601DateFormatter().string(from: $0)
+        } as Any? ?? NSNull()
         if let quota {
             var limits: [String: Any] = ["updatedAt": ISO8601DateFormatter().string(from: quota.updatedAt)]
             for (label, window) in [("5h", quota.fiveHour), ("7d", quota.weekly)] {
@@ -464,7 +536,8 @@ struct CodexMeterMain {
             output["accountUsage"] = account
         }
         output["menuItems"] = MenuBarFormatter.items(quota: quota, sample: logs.latestSample,
-            options: AppModel().options, todayUsage: logs.todayUsage).map { ["metric": $0.metric.rawValue, "title": $0.title] }
+            options: AppModel().options, todayUsage: logs.todayUsage,
+            systemMetrics: systemMetrics).map { ["metric": $0.metric.rawValue, "title": $0.title] }
         if let encoded = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .prettyPrinted]),
            let text = String(data: encoded, encoding: .utf8) { print(text) }
     }

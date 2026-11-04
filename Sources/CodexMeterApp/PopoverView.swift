@@ -8,14 +8,15 @@ struct PopoverView: View {
         ?? NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: nil)!
     @ObservedObject var model: AppModel
     @ObservedObject var updates: AppUpdates
-    @StateObject private var disclosure = PopoverDisclosureState()
+    @StateObject private var measurement = DetailPanelMeasurement()
     var onOpenSettings: () -> Void = {}
     var onOpenAbout: () -> Void = {}
-    var panelHeight: CGFloat = 740
+    var panelHeight: CGFloat = 980
 
     var body: some View {
         VStack(spacing: 0) {
-            header.padding(.horizontal, MeterStyle.pageInset).padding(.vertical, 14)
+            header.padding(.horizontal, MeterStyle.pageInset).padding(.vertical, 12)
+                .measurePanelPart(.header)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -23,33 +24,35 @@ struct PopoverView: View {
                         Link(L10n.text("CodexMeter \(latest.description) is available"), destination: AppMetadata.projectURL)
                             .font(.caption.weight(.medium))
                     }
-                    ForEach(Array(model.detailLayout.visibleSections.enumerated()), id: \.element.id) { index, section in
-                        if index > 0 { Divider().padding(.horizontal, MeterStyle.pageInset) }
-                        sectionContainer {
-                            switch section {
-                            case .quota: quotaSection
-                            case .today: localTodaySection
-                            case .speed: speedSection
-                            case .account: accountSection
-                            case .settings: settingsSection
-                            }
+                    sectionContainer {
+                        switch model.selectedDetailSection {
+                        case .quota: quotaSection
+                        case .today: localTodaySection
+                        case .speed: speedSection
+                        case .account: accountSection
+                        case .cpu, .gpu, .ram:
+                            SystemMetricsDetailView(section: model.selectedDetailSection,
+                                snapshot: model.currentSystemMetrics, history: model.systemMetricsHistory)
+                        case .network: networkSection
+                        case .settings: settingsSection
                         }
-                    }
-                    if model.detailLayout.visibleSections.isEmpty {
-                        VStack(spacing: 12) {
-                            Text(L10n.text("No sections visible")).foregroundStyle(.secondary)
-                            Button(L10n.text("Customize layout…"), action: onOpenSettings)
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, 28)
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
+                .measurePanelPart(.content)
             }
+            .frame(height: measurement.viewportHeight(maximum: panelHeight))
+            .scrollDisabled(!measurement.needsScrolling(maximum: panelHeight))
+            .scrollIndicators(measurement.needsScrolling(maximum: panelHeight) ? .automatic : .hidden)
+            .id(model.selectedDetailSection.rawValue + "." + (model.selectedQuotaMetric?.rawValue ?? "all"))
             .background(MeterStyle.background)
             Divider()
             footer.padding(.horizontal, MeterStyle.pageInset).padding(.vertical, 10)
                 .background(MeterStyle.surface)
+                .measurePanelPart(.footer)
         }
-        .frame(width: 420, height: model.detailLayout.visibleSections.isEmpty ? min(panelHeight, 240) : panelHeight)
+        .frame(width: 480)
+        .onPreferenceChange(DetailPanelSizeKey.self) { measurement.update($0) }
         .environment(\.locale, L10n.locale)
         .id(model.language)
     }
@@ -64,6 +67,21 @@ struct PopoverView: View {
                 Text(L10n.text("Know your limits. Keep your focus.")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
             Spacer()
+            Menu {
+                ForEach(model.detailLayout.visibleSections) { section in
+                    Button {
+                        model.selectedDetailSection = section
+                        model.selectedQuotaMetric = nil
+                    } label: {
+                        Label(section.title, systemImage: section.symbol)
+                    }
+                }
+            } label: {
+                Image(systemName: "rectangle.stack").font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden)
+            .disabled(model.detailLayout.visibleSections.isEmpty)
+            .frame(width: 20).help(L10n.text("Other details")).accessibilityLabel(L10n.text("Other details"))
             Group {
                 if model.refreshing || model.accountRefreshing { ProgressView().controlSize(.small) }
                 else { Color.clear }
@@ -79,8 +97,8 @@ struct PopoverView: View {
     private var footer: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.quota?.source == .appServer && model.quota?.isStale == false && model.quotaWarning == nil ? L10n.text("Live quota") : L10n.text("Quota updated"))
-                Text(model.quota.map { Self.date($0.updatedAt) } ?? L10n.text("No quota data yet"))
+                Text(footerStatus.title)
+                Text(footerStatus.value)
             }.font(MeterStyle.captionFont).foregroundStyle(.secondary)
             Spacer()
             MeterIconButton(symbol: "gearshape", title: L10n.text("Settings"), action: onOpenSettings)
@@ -88,6 +106,24 @@ struct PopoverView: View {
             Button(L10n.text("Quit")) { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless).font(MeterStyle.captionFont)
                 .help(L10n.text("Quit CodexMeter")).accessibilityLabel(L10n.text("Quit CodexMeter"))
+        }
+    }
+
+    private var footerStatus: (title: String, value: String) {
+        switch model.selectedDetailSection {
+        case .cpu, .gpu, .ram, .network:
+            (L10n.text("System updated"), model.currentSystemMetrics.map { Self.date($0.sampledAt) } ?? L10n.text("Waiting for system data"))
+        case .speed:
+            (L10n.text("Latest response"), model.sample.map { Self.date($0.completedAt) } ?? "—")
+        case .today:
+            (L10n.text("Today · this Mac"), model.localDayUsage.map { Self.date($0.updatedAt) } ?? "—")
+        case .account:
+            (L10n.text("Account usage"), model.accountInfo.map { Self.date($0.updatedAt) } ?? "—")
+        case .settings:
+            (AppMetadata.name, L10n.text("Settings"))
+        case .quota:
+            (model.quota?.source == .appServer && model.quota?.isStale == false && model.quotaWarning == nil ? L10n.text("Live quota") : L10n.text("Quota updated"),
+             model.quota.map { Self.date($0.updatedAt) } ?? L10n.text("No quota data yet"))
         }
     }
 
@@ -102,11 +138,13 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 14) {
             sectionTitle(L10n.text("Plan limits"), symbol: "chart.bar.fill")
             subscriptionBadge
-            if model.quota == nil || model.quota?.fiveHour != nil {
+            if model.selectedQuotaMetric != .weekly && (model.quota == nil || model.quota?.fiveHour != nil) {
                 quotaRow(L10n.text("5-hour limit"), symbol: "clock", window: model.quota?.fiveHour)
-                Divider()
+                if model.selectedQuotaMetric != .fiveHour { Divider() }
             }
-            quotaRow(L10n.text("7-day limit"), symbol: "calendar", window: model.quota?.weekly)
+            if model.selectedQuotaMetric != .fiveHour {
+                quotaRow(L10n.text("7-day limit"), symbol: "calendar", window: model.quota?.weekly)
+            }
             if quotaIsCached {
                 MeterStatusLabel(title: L10n.text("Cached quota · may be outdated"), symbol: "clock.badge.exclamationmark")
             }
@@ -267,18 +305,15 @@ struct PopoverView: View {
 
     private func dailyHistorySection(_ buckets: [AccountDailyUsageBucket]) -> some View {
         let sorted = buckets.sorted { $0.startDate > $1.startDate }
-        return DisclosureGroup(L10n.text("Daily tokens · \(sorted.count) dates")) {
-            VStack(spacing: 7) {
-                ForEach(Array(sorted.prefix(14).enumerated()), id: \.offset) { _, day in dailyRow(day) }
-                if sorted.count > 14 {
-                    DisclosureGroup(L10n.text("Earlier dates")) {
-                        VStack(spacing: 7) {
-                            ForEach(Array(sorted.dropFirst(14).enumerated()), id: \.offset) { _, day in dailyRow(day) }
-                        }.padding(.top, 7)
-                    }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.text("Daily tokens · \(sorted.count) dates")).font(MeterStyle.sectionFont)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 7) {
+                ForEach(Array(sorted.enumerated()), id: \.offset) { index, day in
+                    dailyRow(day).padding(.leading, index.isMultiple(of: 2) ? 0 : 12)
                 }
-            }.padding(.top, 8)
-        }.font(MeterStyle.captionFont).help(L10n.text("Dates and totals reported by Codex. A missing date is not treated as zero."))
+            }
+        }
+        .help(L10n.text("Dates and totals reported by Codex. A missing date is not treated as zero."))
     }
 
     private func dailyRow(_ day: AccountDailyUsageBucket) -> some View {
@@ -289,31 +324,37 @@ struct PopoverView: View {
         }.font(MeterStyle.captionFont)
     }
 
-    private var settingsSection: some View {
-        DisclosureGroup(L10n.text("Settings"), isExpanded: $model.settingsExpanded) {
-            SettingsContent(model: model, updates: updates).padding(.top, 14)
+    private var networkSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle(DetailSection.network.title, symbol: DetailSection.network.symbol)
+            HStack {
+                metric(L10n.text("Upload"), value: SystemMetricsFormatter.rate(model.currentSystemMetrics?.networkUploadBytesPerSecond))
+                Spacer()
+                metric(L10n.text("Download"), value: SystemMetricsFormatter.rate(model.currentSystemMetrics?.networkDownloadBytesPerSecond))
+            }
+            Text(L10n.text("Physical network interfaces · bytes per second"))
+                .font(MeterStyle.captionFont).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            NetworkProcessList(processes: model.currentSystemMetrics?.networkTopProcesses ?? [],
+                updatedAt: model.currentSystemMetrics?.networkProcessesUpdatedAt)
         }
     }
 
+    private var settingsSection: some View {
+        SettingsContent(model: model, updates: updates)
+    }
+
     private var resetCreditsSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button { disclosure.resetCredits.toggle() } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: disclosure.resetCredits ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                        .frame(width: 10).accessibilityHidden(true)
-                    Label(L10n.text("Reset credits"), systemImage: "arrow.counterclockwise.circle")
-                    Spacer(minLength: 4)
-                    Text(resetCreditSummary)
-                        .fontWeight(.medium).monospacedDigit().lineLimit(1).minimumScaleFactor(0.85)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label(L10n.text("Reset credits"), systemImage: "arrow.counterclockwise.circle")
+                    .font(MeterStyle.sectionFont)
+                Spacer(minLength: 4)
+                Text(resetCreditSummary).fontWeight(.medium).monospacedDigit()
+                    .multilineTextAlignment(.trailing).foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            .accessibilityValue(disclosure.resetCredits ? L10n.text("Expanded") : L10n.text("Collapsed"))
-            if disclosure.resetCredits { resetCreditDetails.padding(.top, 8) }
+            resetCreditDetails
         }
         .font(MeterStyle.captionFont)
     }
@@ -429,6 +470,38 @@ struct PopoverView: View {
 
 }
 
-private final class PopoverDisclosureState: ObservableObject {
-    @Published var resetCredits = false
+enum DetailPanelPart: Hashable { case header, content, footer }
+
+private struct DetailPanelSizeKey: PreferenceKey {
+    static let defaultValue: [DetailPanelPart: CGFloat] = [:]
+    static func reduce(value: inout [DetailPanelPart: CGFloat], nextValue: () -> [DetailPanelPart: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private extension View {
+    func measurePanelPart(_ part: DetailPanelPart) -> some View {
+        background(GeometryReader { geometry in
+            Color.clear.preference(key: DetailPanelSizeKey.self, value: [part: geometry.size.height])
+        })
+    }
+}
+
+final class DetailPanelMeasurement: ObservableObject {
+    @Published private var heights: [DetailPanelPart: CGFloat] = [:]
+
+    func update(_ values: [DetailPanelPart: CGFloat]) {
+        let valid = values.filter { $0.value.isFinite && $0.value > 0 }
+        guard valid.contains(where: { abs((heights[$0.key] ?? 0) - $0.value) > 0.5 }) else { return }
+        heights.merge(valid, uniquingKeysWith: { _, new in new })
+    }
+
+    func viewportHeight(maximum: CGFloat) -> CGFloat {
+        let chrome = (heights[.header] ?? 62) + (heights[.footer] ?? 50) + 2
+        return max(0, min(heights[.content] ?? 280, maximum - chrome))
+    }
+
+    func needsScrolling(maximum: CGFloat) -> Bool {
+        (heights[.content] ?? 280) > viewportHeight(maximum: maximum) + 0.5
+    }
 }

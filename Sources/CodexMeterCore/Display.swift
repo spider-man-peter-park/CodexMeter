@@ -1,7 +1,14 @@
 import Foundation
 
 public enum MenuBarMetric: String, Codable, CaseIterable, Hashable, Sendable {
-    case fiveHour, weekly, tps, todayTokens, fallback
+    case fiveHour, weekly, tps, todayTokens, cpu, gpu, ram, network, fallback
+
+    public var isSystemMetric: Bool {
+        switch self {
+        case .cpu, .gpu, .ram, .network: true
+        default: false
+        }
+    }
 }
 
 public enum QuotaLabelStyle: String, Codable, CaseIterable, Sendable {
@@ -13,6 +20,29 @@ public enum CountdownStyle: String, Codable, CaseIterable, Sendable {
 }
 
 public enum MenuBarTPSLayout: String, Codable, CaseIterable, Sendable { case inline, stacked }
+
+public enum MenuBarLabelPosition: String, Codable, CaseIterable, Sendable { case above, leading }
+
+public struct SystemMetricDisplayOptions: Equatable, Codable, Sendable {
+    public var showIcon: Bool
+    public var showLabel: Bool
+    public var labelPosition: MenuBarLabelPosition
+
+    public init(showIcon: Bool = true, showLabel: Bool = true, labelPosition: MenuBarLabelPosition = .leading) {
+        self.showIcon = showIcon
+        self.showLabel = showLabel
+        self.labelPosition = labelPosition
+    }
+
+    private enum CodingKeys: String, CodingKey { case showIcon, showLabel, labelPosition }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        showIcon = try values.decodeIfPresent(Bool.self, forKey: .showIcon) ?? true
+        showLabel = try values.decodeIfPresent(Bool.self, forKey: .showLabel) ?? true
+        labelPosition = (try? values.decode(MenuBarLabelPosition.self, forKey: .labelPosition)) ?? .leading
+    }
+}
 
 public enum MenuBarFontWeight: String, Codable, CaseIterable, Sendable { case regular, medium, semibold }
 public enum MenuBarFontDesign: String, Codable, CaseIterable, Sendable { case system, rounded, monospaced }
@@ -29,16 +59,30 @@ public struct MenuBarItem: Equatable, Sendable, Identifiable {
     public let symbolName: String?
     public let usesGPTLogo: Bool
     public let tpsValue: String?
+    public let systemValue: String?
+    public let systemLabel: String?
+    public let networkUploadValue: String?
+    public let networkDownloadValue: String?
+    public let quotaPrimary: String?
+    public let quotaCountdown: String?
     public var id: MenuBarMetric { metric }
 
     public init(metric: MenuBarMetric, title: String, accessibilityLabel: String, symbolName: String? = nil,
-                usesGPTLogo: Bool = false, tpsValue: String? = nil) {
+                usesGPTLogo: Bool = false, tpsValue: String? = nil, systemValue: String? = nil,
+                systemLabel: String? = nil, networkUploadValue: String? = nil, networkDownloadValue: String? = nil,
+                quotaPrimary: String? = nil, quotaCountdown: String? = nil) {
         self.metric = metric
         self.title = title
         self.accessibilityLabel = accessibilityLabel
         self.symbolName = symbolName
         self.usesGPTLogo = usesGPTLogo
         self.tpsValue = tpsValue
+        self.systemValue = systemValue
+        self.systemLabel = systemLabel
+        self.networkUploadValue = networkUploadValue
+        self.networkDownloadValue = networkDownloadValue
+        self.quotaPrimary = quotaPrimary
+        self.quotaCountdown = quotaCountdown
     }
 }
 
@@ -50,6 +94,15 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
     public var showCountdown: Bool
     public var showTPS: Bool
     public var showTodayTokens: Bool
+    public var showTodayTokensLabel: Bool
+    public var showCPU: Bool
+    public var showGPU: Bool
+    public var showRAM: Bool
+    public var showNetworkUpload: Bool
+    public var showNetworkDownload: Bool
+    public var cpuDisplay: SystemMetricDisplayOptions
+    public var gpuDisplay: SystemMetricDisplayOptions
+    public var ramDisplay: SystemMetricDisplayOptions
     public var quotaLabelStyle: QuotaLabelStyle
     public var countdownStyle: CountdownStyle
     public var tpsDecimals: Int
@@ -71,7 +124,7 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
         let label = Self.sanitizeQuotaLabel(customQuotaLabel)
         return label.isEmpty ? "AI" : label
     }
-    public var itemHorizontalPadding: Double { spacing == .compact ? 3 : 7 }
+    public var itemHorizontalPadding: Double { spacing == .compact ? 3 : 5 }
 
     public static func sanitizeQuotaLabel(_ value: String) -> String {
         let safe = value.unicodeScalars.filter {
@@ -84,6 +137,11 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
 
     public init(fullMode: Bool = false, showFiveHour: Bool = true, showWeekly: Bool = true,
                 showCountdown: Bool = true, showTPS: Bool = true, showTodayTokens: Bool = true,
+                showTodayTokensLabel: Bool = true,
+                showCPU: Bool = true, showGPU: Bool = true, showRAM: Bool = true,
+                showNetworkUpload: Bool = true, showNetworkDownload: Bool = true,
+                cpuDisplay: SystemMetricDisplayOptions = .init(), gpuDisplay: SystemMetricDisplayOptions = .init(),
+                ramDisplay: SystemMetricDisplayOptions = .init(),
                 quotaLabelStyle: QuotaLabelStyle = .ai, countdownStyle: CountdownStyle = .compact,
                 tpsDecimals: Int = 0, showTPSLabel: Bool = true, showTPSIcon: Bool = true,
                 tpsLayout: MenuBarTPSLayout = .inline,
@@ -98,6 +156,15 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
         self.showCountdown = showCountdown
         self.showTPS = showTPS
         self.showTodayTokens = showTodayTokens
+        self.showTodayTokensLabel = showTodayTokensLabel
+        self.showCPU = showCPU
+        self.showGPU = showGPU
+        self.showRAM = showRAM
+        self.showNetworkUpload = showNetworkUpload
+        self.showNetworkDownload = showNetworkDownload
+        self.cpuDisplay = cpuDisplay
+        self.gpuDisplay = gpuDisplay
+        self.ramDisplay = ramDisplay
         self.quotaLabelStyle = quotaLabelStyle
         self.countdownStyle = countdownStyle
         self.tpsDecimals = tpsDecimals
@@ -116,7 +183,9 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case fullMode, showFiveHour, showWeekly, showCountdown, showTPS, showTodayTokens
+        case fullMode, showFiveHour, showWeekly, showCountdown, showTPS, showTodayTokens, showTodayTokensLabel
+        case showCPU, showGPU, showRAM, showNetworkUpload, showNetworkDownload
+        case cpuDisplay, gpuDisplay, ramDisplay
         case quotaLabelStyle, countdownStyle, tpsDecimals, showTPSLabel, showTPSIcon, tpsLayout
         case fontSize, fontWeight, fontDesign, colorStyle, itemStyle, spacing
         case customQuotaLabel, showPercentSign, countdownSeparator
@@ -130,6 +199,15 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
         showCountdown = try values.decodeIfPresent(Bool.self, forKey: .showCountdown) ?? true
         showTPS = try values.decodeIfPresent(Bool.self, forKey: .showTPS) ?? true
         showTodayTokens = try values.decodeIfPresent(Bool.self, forKey: .showTodayTokens) ?? true
+        showTodayTokensLabel = try values.decodeIfPresent(Bool.self, forKey: .showTodayTokensLabel) ?? true
+        showCPU = try values.decodeIfPresent(Bool.self, forKey: .showCPU) ?? true
+        showGPU = try values.decodeIfPresent(Bool.self, forKey: .showGPU) ?? true
+        showRAM = try values.decodeIfPresent(Bool.self, forKey: .showRAM) ?? true
+        showNetworkUpload = try values.decodeIfPresent(Bool.self, forKey: .showNetworkUpload) ?? true
+        showNetworkDownload = try values.decodeIfPresent(Bool.self, forKey: .showNetworkDownload) ?? true
+        cpuDisplay = (try? values.decode(SystemMetricDisplayOptions.self, forKey: .cpuDisplay)) ?? .init()
+        gpuDisplay = (try? values.decode(SystemMetricDisplayOptions.self, forKey: .gpuDisplay)) ?? .init()
+        ramDisplay = (try? values.decode(SystemMetricDisplayOptions.self, forKey: .ramDisplay)) ?? .init()
         quotaLabelStyle = try values.decodeIfPresent(QuotaLabelStyle.self, forKey: .quotaLabelStyle) ?? .ai
         countdownStyle = try values.decodeIfPresent(CountdownStyle.self, forKey: .countdownStyle) ?? .compact
         tpsDecimals = try values.decodeIfPresent(Int.self, forKey: .tpsDecimals) ?? 0
@@ -191,7 +269,8 @@ public struct DisplayOptions: Equatable, Codable, Sendable {
 public enum MenuBarFormatter {
     public static func items(quota: QuotaSnapshot?, sample: TPSSample?, options: DisplayOptions,
                              todayUsage: LocalDayUsage? = nil, now: Date = Date(), stale: Bool = false,
-                             calendar: Calendar = .current) -> [MenuBarItem] {
+                             calendar: Calendar = .current, systemMetrics: SystemMetricsSnapshot? = nil,
+                             systemNow: Date? = nil) -> [MenuBarItem] {
         var result: [MenuBarItem] = []
         let isCached = quota.map { stale || $0.source == .logCache || $0.isStale } ?? false
         func window(_ metric: MenuBarMetric, _ value: QuotaWindow?) -> MenuBarItem {
@@ -204,12 +283,15 @@ public enum MenuBarFormatter {
             case .none, .icon, .gpt: label = ""
             case .custom: label = options.normalizedCustomQuotaLabel + " "
             }
-            var title = label + (value.map { "\(Int($0.remainingPercent.rounded()))" + (options.showPercentSign ? "%" : "") } ?? (quota == nil ? "—" : "N/A"))
+            let primary = label + (value.map { "\(Int($0.remainingPercent.rounded()))" + (options.showPercentSign ? "%" : "") } ?? (quota == nil ? "—" : "N/A"))
+            var title = primary
+            var resetCountdown: String?
             var accessibility = accessibleWindow
             if let value {
                 accessibility += L10n.text(", \(Int(value.remainingPercent.rounded())) percent remaining")
                 if options.showCountdown {
                     let remaining = countdown(until: value.resetsAt, now: now, style: options.countdownStyle)
+                    resetCountdown = remaining
                     switch options.countdownSeparator {
                     case .space: title += " " + remaining
                     case .dot: title += " · " + remaining
@@ -222,12 +304,12 @@ public enum MenuBarFormatter {
                 accessibility += quota == nil ? L10n.text(", data unavailable") : L10n.text(", window not reported by this account")
             }
             if isCached {
-                title += " *"
                 accessibility += L10n.text(", cached data, may be outdated")
             }
             return MenuBarItem(metric: metric, title: title, accessibilityLabel: accessibility,
                                symbolName: options.quotaLabelStyle == .icon ? (metric == .fiveHour ? "clock" : "calendar") : nil,
-                               usesGPTLogo: options.quotaLabelStyle == .gpt)
+                               usesGPTLogo: options.quotaLabelStyle == .gpt,
+                               quotaPrimary: primary, quotaCountdown: resetCountdown)
         }
         if options.showFiveHour { result.append(window(.fiveHour, quota?.fiveHour)) }
         if options.showWeekly { result.append(window(.weekly, quota?.weekly)) }
@@ -253,8 +335,38 @@ public enum MenuBarFormatter {
             if todayUsage?.matches(now, calendar: calendar) == true, todayUsage?.isBackfilling == true {
                 accessibility += ". " + L10n.text("Backfilling today's logs…")
             }
-            result.append(MenuBarItem(metric: .todayTokens, title: TokenCountFormatter.compact(total),
+            result.append(MenuBarItem(metric: .todayTokens,
+                                      title: (options.showTodayTokensLabel ? "tok " : "") + TokenCountFormatter.compact(total),
                                       accessibilityLabel: accessibility, symbolName: DetailSection.today.symbol))
+        }
+        let freshSystem = systemMetrics?.fresh(at: systemNow ?? now)
+        let metrics: [(Bool, MenuBarMetric, String, String, Double?, SystemMetricDisplayOptions)] = [
+            (options.showCPU, .cpu, "CPU", "cpu", freshSystem?.cpuUsagePercent, options.cpuDisplay),
+            (options.showGPU, .gpu, "GPU", "display", freshSystem?.gpuUsagePercent, options.gpuDisplay),
+            (options.showRAM, .ram, "RAM", "memorychip", freshSystem?.memoryUsagePercent, options.ramDisplay)
+        ]
+        for (visible, metric, label, symbol, value, display) in metrics where visible {
+            let formatted = SystemMetricsFormatter.percent(value)
+            let title = display.showLabel ? label + " " + formatted : formatted
+            let accessibility = label + ", " + (formatted == "—" ? L10n.text("System reading unavailable") : formatted)
+            result.append(MenuBarItem(metric: metric, title: title, accessibilityLabel: accessibility,
+                symbolName: display.showIcon ? symbol : nil, systemValue: formatted, systemLabel: display.showLabel ? label : nil))
+        }
+        if options.showNetworkUpload || options.showNetworkDownload {
+            let upload = options.showNetworkUpload ? SystemMetricsFormatter.rate(freshSystem?.networkUploadBytesPerSecond) : nil
+            let download = options.showNetworkDownload ? SystemMetricsFormatter.rate(freshSystem?.networkDownloadBytesPerSecond) : nil
+            var titles: [String] = []
+            var accessibility: [String] = []
+            if let upload {
+                titles.append("↑ " + upload)
+                accessibility.append(L10n.text("Upload") + ", " + (upload == "—" ? L10n.text("System reading unavailable") : upload))
+            }
+            if let download {
+                titles.append("↓ " + download)
+                accessibility.append(L10n.text("Download") + ", " + (download == "—" ? L10n.text("System reading unavailable") : download))
+            }
+            result.append(MenuBarItem(metric: .network, title: titles.joined(separator: " "),
+                accessibilityLabel: accessibility.joined(separator: "; "), networkUploadValue: upload, networkDownloadValue: download))
         }
         return result.isEmpty ? [MenuBarItem(metric: .fallback, title: "AI", accessibilityLabel: L10n.text("CodexMeter, open details"),
                                             symbolName: options.quotaLabelStyle == .icon ? "sparkles" : nil,
@@ -262,8 +374,10 @@ public enum MenuBarFormatter {
     }
 
     public static func title(quota: QuotaSnapshot?, sample: TPSSample?, options: DisplayOptions,
-                             todayUsage: LocalDayUsage? = nil, now: Date = Date(), stale: Bool = false) -> String {
-        items(quota: quota, sample: sample, options: options, todayUsage: todayUsage, now: now, stale: stale)
+                             todayUsage: LocalDayUsage? = nil, now: Date = Date(), stale: Bool = false,
+                             systemMetrics: SystemMetricsSnapshot? = nil, systemNow: Date? = nil) -> String {
+        items(quota: quota, sample: sample, options: options, todayUsage: todayUsage, now: now, stale: stale,
+              systemMetrics: systemMetrics, systemNow: systemNow)
             .map(\.title).joined(separator: " | ")
     }
 

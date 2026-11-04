@@ -8,7 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Unit tests
-        run: ./scripts/test.sh
+        run: ./scripts/test.sh --no-parallel
       - name: Build Xcode application
         run: xcodebuild -project CodexMeter.xcodeproj -scheme CodexMeter -configuration Release -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build
       - name: Build standalone application

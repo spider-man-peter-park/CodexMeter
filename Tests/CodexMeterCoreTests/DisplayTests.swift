@@ -18,30 +18,43 @@ import Testing
                   reasoningTokens: 300, elapsedSeconds: 10, completedAt: now)
     }
 
+    // Keep Codex metric regression cases independent of the system metric defaults.
+    private func codexItems(quota: QuotaSnapshot?, sample: TPSSample?, options: DisplayOptions,
+                            todayUsage: LocalDayUsage? = nil, now: Date, stale: Bool = false) -> [MenuBarItem] {
+        var options = options
+        options.showCPU = false
+        options.showGPU = false
+        options.showRAM = false
+        options.showNetworkUpload = false
+        options.showNetworkDownload = false
+        return MenuBarFormatter.items(quota: quota, sample: sample, options: options,
+            todayUsage: todayUsage, now: now, stale: stale)
+    }
+
     @Test func eachMetricHasSeparateIdentityAndNoCombinedText() {
-        let items = MenuBarFormatter.items(quota: quota(), sample: sample, options: DisplayOptions(), now: now)
+        let items = codexItems(quota: quota(), sample: sample, options: DisplayOptions(), now: now)
         #expect(items.map(\.metric) == [.fiveHour, .weekly, .tps, .todayTokens])
         #expect(Set(items.map(\.id)).count == 4)
-        #expect(items.map(\.title) == ["AI 82% 2h14m", "AI 61% 4d8h", "73 TPS", "—"])
+        #expect(items.map(\.title) == ["AI 82% 2h14m", "AI 61% 4d8h", "73 TPS", "tok —"])
         #expect(items.allSatisfy { !$0.title.contains("|") })
         #expect(items[0].accessibilityLabel.contains(L10n.text("5-hour quota")))
         #expect(items[1].accessibilityLabel.contains(L10n.text("7-day quota")))
     }
 
     @Test func noDataUsesDashesInsteadOfZero() {
-        let items = MenuBarFormatter.items(quota: nil, sample: nil, options: DisplayOptions(), now: now)
-        #expect(items.map(\.title) == ["AI —", "AI —", "— TPS", "—"])
+        let items = codexItems(quota: nil, sample: nil, options: DisplayOptions(), now: now)
+        #expect(items.map(\.title) == ["AI —", "AI —", "— TPS", "tok —"])
         #expect(items.allSatisfy { !$0.title.contains("0%") })
     }
 
     @Test func windowLabelsRemainAnIndependentChoice() {
         let options = DisplayOptions(quotaLabelStyle: .window)
-        let items = MenuBarFormatter.items(quota: quota(), sample: nil, options: options, now: now)
-        #expect(items.map(\.title) == ["5h 82% 2h14m", "7d 61% 4d8h", "— TPS", "—"])
+        let items = codexItems(quota: quota(), sample: nil, options: options, now: now)
+        #expect(items.map(\.title) == ["5h 82% 2h14m", "7d 61% 4d8h", "— TPS", "tok —"])
     }
 
     @Test func labelsCanBeHiddenWithoutChangingMetricIdentity() {
-        let items = MenuBarFormatter.items(quota: quota(), sample: nil,
+        let items = codexItems(quota: quota(), sample: nil,
                                            options: DisplayOptions(quotaLabelStyle: .none), now: now)
         #expect(items[0].title == "82% 2h14m")
         #expect(items[0].metric == .fiveHour)
@@ -50,16 +63,16 @@ import Testing
     }
 
     @Test func countdownVisibilityDoesNotDependOnLegacyFullMode() {
-        let visible = MenuBarFormatter.items(quota: quota(), sample: nil,
+        let visible = codexItems(quota: quota(), sample: nil,
                                              options: DisplayOptions(fullMode: false, showTPS: false), now: now)
-        #expect(visible.map(\.title) == ["AI 82% 2h14m", "AI 61% 4d8h", "—"])
-        let hidden = MenuBarFormatter.items(quota: quota(), sample: nil,
+        #expect(visible.map(\.title) == ["AI 82% 2h14m", "AI 61% 4d8h", "tok —"])
+        let hidden = codexItems(quota: quota(), sample: nil,
                                             options: DisplayOptions(fullMode: true, showCountdown: false, showTPS: false), now: now)
-        #expect(hidden.map(\.title) == ["AI 82%", "AI 61%", "—"])
+        #expect(hidden.map(\.title) == ["AI 82%", "AI 61%", "tok —"])
     }
 
     @Test func clockCountdownStyleFormatsHoursMinutesAndDays() {
-        let items = MenuBarFormatter.items(quota: quota(), sample: nil,
+        let items = codexItems(quota: quota(), sample: nil,
                                            options: DisplayOptions(countdownStyle: .clock), now: now)
         #expect(items[0].title == "AI 82% 02:14")
         #expect(items[1].title == "AI 61% 4d08:00")
@@ -68,7 +81,7 @@ import Testing
 
     @Test func metricVisibilityDoesNotCombineRemainingItems() {
         let options = DisplayOptions(showFiveHour: false, showCountdown: false, showTPS: false, showTodayTokens: false)
-        let items = MenuBarFormatter.items(quota: quota(), sample: nil, options: options, now: now)
+        let items = codexItems(quota: quota(), sample: nil, options: options, now: now)
         #expect(items.count == 1)
         #expect(items[0].metric == .weekly)
         #expect(items[0].title == "AI 61%")
@@ -76,46 +89,50 @@ import Testing
 
     @Test func missingWindowIsNAOnlyAfterValidSnapshot() {
         let weekly = QuotaSnapshot(fiveHour: nil, weekly: quota().weekly, updatedAt: now, source: .appServer)
-        let items = MenuBarFormatter.items(quota: weekly, sample: nil, options: DisplayOptions(), now: now)
+        let items = codexItems(quota: weekly, sample: nil, options: DisplayOptions(), now: now)
         #expect(items[0].title == "AI N/A")
         #expect(items[1].title == "AI 61% 4d8h")
     }
 
-    @Test func eachCachedQuotaHasMarkerButTPSDoesNot() {
-        let items = MenuBarFormatter.items(quota: quota(source: .logCache), sample: sample,
+    @Test func cachedQuotaHasNoMenuMarkerAndRetainsItsAccessibleWarning() {
+        let items = codexItems(quota: quota(source: .logCache), sample: sample,
                                            options: DisplayOptions(), now: now)
-        #expect(items[0].title.hasSuffix(" *"))
-        #expect(items[1].title.hasSuffix(" *"))
-        #expect(!items[2].title.hasSuffix(" *"))
+        let live = codexItems(quota: quota(), sample: sample, options: DisplayOptions(), now: now)
+        #expect(items.map(\.title) == live.map(\.title))
+        #expect(items.allSatisfy { !$0.title.contains("*") })
         #expect(items[0].accessibilityLabel.contains(L10n.text(", cached data, may be outdated")))
-        let failed = MenuBarFormatter.items(quota: quota(), sample: nil,
+        #expect(items[1].accessibilityLabel.contains(L10n.text(", cached data, may be outdated")))
+        let failed = codexItems(quota: quota(), sample: nil,
                                             options: DisplayOptions(), now: now, stale: true)
-        #expect(failed[0].title.hasSuffix(" *"))
+        #expect(failed.prefix(2).map(\.title) == live.prefix(2).map(\.title))
+        #expect(failed[0].accessibilityLabel.contains(L10n.text(", cached data, may be outdated")))
+        #expect(live[0].quotaPrimary == "AI 82%" && live[0].quotaCountdown == "2h14m")
+        #expect(live[1].quotaPrimary == "AI 61%" && live[1].quotaCountdown == "4d8h")
     }
 
     @Test func tpsPrecisionAndSuffixAreIndependent() {
         let options = DisplayOptions(showFiveHour: false, showWeekly: false, showTodayTokens: false,
                                      tpsDecimals: 1, showTPSLabel: false)
-        let items = MenuBarFormatter.items(quota: nil, sample: sample, options: options, now: now)
+        let items = codexItems(quota: nil, sample: sample, options: options, now: now)
         #expect(items.count == 1)
         #expect(items[0].title == "73.4")
         #expect(items[0].metric == .tps)
         #expect(items[0].accessibilityLabel.contains(L10n.text("Latest completed response, \("73.4") effective tokens per second")))
-        let labeled = MenuBarFormatter.items(quota: nil, sample: sample,
+        let labeled = codexItems(quota: nil, sample: sample,
                                              options: DisplayOptions(showFiveHour: false, showWeekly: false, tpsDecimals: 1), now: now)
         #expect(labeled[0].title == "73.4 TPS")
     }
 
     @Test func tpsPrecisionIsBoundedToSupportedChoices() {
         var options = DisplayOptions(showFiveHour: false, showWeekly: false, tpsDecimals: 99)
-        #expect(MenuBarFormatter.items(quota: nil, sample: sample, options: options, now: now)[0].title == "73.4 TPS")
+        #expect(codexItems(quota: nil, sample: sample, options: options, now: now)[0].title == "73.4 TPS")
         options.tpsDecimals = -5
-        #expect(MenuBarFormatter.items(quota: nil, sample: sample, options: options, now: now)[0].title == "73 TPS")
+        #expect(codexItems(quota: nil, sample: sample, options: options, now: now)[0].title == "73 TPS")
     }
 
     @Test func allHiddenKeepsOneClickableAIItem() {
         let options = DisplayOptions(showFiveHour: false, showWeekly: false, showTPS: false, showTodayTokens: false)
-        let items = MenuBarFormatter.items(quota: nil, sample: nil, options: options, now: now)
+        let items = codexItems(quota: nil, sample: nil, options: options, now: now)
         #expect(items.count == 1)
         #expect(items[0].metric == .fallback)
         #expect(items[0].title == "AI")
@@ -141,7 +158,7 @@ import Testing
         #expect(options.showTodayTokens)
     }
     @Test func iconLabelsAreNativeSymbolsWithIndependentWindowIdentity() {
-        let items = MenuBarFormatter.items(quota: quota(), sample: sample,
+        let items = codexItems(quota: quota(), sample: sample,
                                            options: DisplayOptions(quotaLabelStyle: .icon), now: now)
         #expect(items[0].title == "82% 2h14m")
         #expect(items[0].symbolName == "clock")
@@ -153,9 +170,9 @@ import Testing
     @Test func gptLogoLabelsPreserveIndependentQuotaMetricsAndSurvivePreferences() throws {
         let options = DisplayOptions(quotaLabelStyle: .gpt)
         let restored = try JSONDecoder().decode(DisplayOptions.self, from: JSONEncoder().encode(options))
-        let items = MenuBarFormatter.items(quota: quota(), sample: sample, options: restored, now: now)
+        let items = codexItems(quota: quota(), sample: sample, options: restored, now: now)
         #expect(items.map(\.metric) == [.fiveHour, .weekly, .tps, .todayTokens])
-        #expect(items.map(\.title) == ["82% 2h14m", "61% 4d8h", "73 TPS", "—"])
+        #expect(items.map(\.title) == ["82% 2h14m", "61% 4d8h", "73 TPS", "tok —"])
         #expect(items.map(\.usesGPTLogo) == [true, true, false, false])
         #expect(items.prefix(2).allSatisfy { $0.symbolName == nil })
         #expect(items[2].symbolName == "bolt.fill")
@@ -165,14 +182,14 @@ import Testing
 
     @Test func gptLogoWorksWithoutQuotaDataAndKeepsHiddenMetricsAccessible() {
         var options = DisplayOptions(quotaLabelStyle: .gpt)
-        let missing = MenuBarFormatter.items(quota: nil, sample: nil, options: options, now: now)
-        #expect(missing.map(\.title) == ["—", "—", "— TPS", "—"])
+        let missing = codexItems(quota: nil, sample: nil, options: options, now: now)
+        #expect(missing.map(\.title) == ["—", "—", "— TPS", "tok —"])
         #expect(missing.map(\.usesGPTLogo) == [true, true, false, false])
         options.showFiveHour = false
         options.showWeekly = false
         options.showTPS = false
         options.showTodayTokens = false
-        let fallback = MenuBarFormatter.items(quota: nil, sample: nil, options: options, now: now)
+        let fallback = codexItems(quota: nil, sample: nil, options: options, now: now)
         #expect(fallback.count == 1)
         #expect(fallback[0].metric == .fallback)
         #expect(fallback[0].usesGPTLogo)
@@ -180,7 +197,7 @@ import Testing
 
     @Test func customLabelsAreBoundedAndRemoveControlCharacters() {
         let options = DisplayOptions(quotaLabelStyle: .custom, customQuotaLabel: "  My  AI\n\tlabeltoolong  ")
-        let items = MenuBarFormatter.items(quota: quota(), sample: nil, options: options, now: now)
+        let items = codexItems(quota: quota(), sample: nil, options: options, now: now)
         #expect(options.normalizedCustomQuotaLabel.count <= 12)
         #expect(!items[0].title.contains("\n"))
         #expect(!items[0].title.contains("\t"))
@@ -196,11 +213,11 @@ import Testing
     }
 
     @Test func percentSignCanBeHiddenWithoutChangingAccessibleMeaning() {
-        let items = MenuBarFormatter.items(quota: quota(), sample: nil,
+        let items = codexItems(quota: quota(), sample: nil,
                                            options: DisplayOptions(showPercentSign: false), now: now)
         #expect(items[0].title == "AI 82 2h14m")
         #expect(items[0].accessibilityLabel.contains(L10n.text(", \(82) percent remaining")))
-        #expect(MenuBarFormatter.items(quota: nil, sample: nil,
+        #expect(codexItems(quota: nil, sample: nil,
                                       options: DisplayOptions(showPercentSign: false), now: now)[0].title == "AI —")
     }
 
@@ -208,7 +225,7 @@ import Testing
         let expected: [CountdownSeparator: String] = [.space: "AI 82% 2h14m", .dot: "AI 82% · 2h14m",
                                                       .slash: "AI 82% / 2h14m", .parentheses: "AI 82% (2h14m)"]
         for separator in CountdownSeparator.allCases {
-            let items = MenuBarFormatter.items(quota: quota(), sample: nil,
+            let items = codexItems(quota: quota(), sample: nil,
                                                options: DisplayOptions(countdownSeparator: separator), now: now)
             #expect(items[0].title == expected[separator])
             #expect(items[0].accessibilityLabel.contains(L10n.text(", resets in ") + "2h14m"))
@@ -233,7 +250,7 @@ import Testing
             #expect(!options.showCountdown)
             #expect(!options.showTPS)
             #expect(!options.showTodayTokens)
-            #expect(MenuBarFormatter.items(quota: quota(), sample: nil, options: options, now: now).map(\.metric) == [.weekly])
+            #expect(codexItems(quota: quota(), sample: nil, options: options, now: now).map(\.metric) == [.weekly])
         }
     }
 
@@ -263,16 +280,16 @@ import Testing
                                      tpsLayout: .stacked)
         let saved = try JSONDecoder().decode(DisplayOptions.self, from: JSONEncoder().encode(options))
         #expect(saved.tpsLayout == .stacked)
-        let items = MenuBarFormatter.items(quota: nil, sample: sample, options: saved, now: now)
+        let items = codexItems(quota: nil, sample: sample, options: saved, now: now)
         #expect(items.count == 1)
         #expect(items[0].metric == .tps)
         #expect(items[0].tpsValue == "73.4")
         #expect(items[0].title == "73.4 TPS")
-        let missing = MenuBarFormatter.items(quota: nil, sample: nil, options: saved, now: now)
+        let missing = codexItems(quota: nil, sample: nil, options: saved, now: now)
         #expect(missing[0].tpsValue == "—")
         var hidden = saved
         hidden.showTPS = false
-        #expect(MenuBarFormatter.items(quota: nil, sample: sample, options: hidden, now: now)[0].metric == .fallback)
+        #expect(codexItems(quota: nil, sample: sample, options: hidden, now: now)[0].metric == .fallback)
     }
 
     @Test func backgroundDefaultsToOpenPanelAndRetainsExplicitPreferences() throws {
@@ -293,7 +310,7 @@ import Testing
                 for layout in MenuBarTPSLayout.allCases {
                     var options = DisplayOptions(showFiveHour: false, showWeekly: false, showTodayTokens: false,
                         showTPSLabel: showLabel, showTPSIcon: showIcon, tpsLayout: layout)
-                    let item = try #require(MenuBarFormatter.items(quota: nil, sample: sample,
+                    let item = try #require(codexItems(quota: nil, sample: sample,
                         options: options, now: now).first)
                     #expect(item.symbolName == (showIcon ? "bolt.fill" : nil))
                     #expect(item.title == (showLabel ? "73 TPS" : "73"))
@@ -304,7 +321,7 @@ import Testing
                         #expect(options.showTPSIcon == showIcon)
                     }
                     options.showTPS = false
-                    #expect(MenuBarFormatter.items(quota: nil, sample: sample, options: options, now: now)
+                    #expect(codexItems(quota: nil, sample: sample, options: options, now: now)
                         .map(\.metric) == [.fallback])
                 }
             }
@@ -317,17 +334,17 @@ import Testing
             input: 12_345, output: 655, cachedInput: 9_000, reasoningOutput: 100, responses: 1,
             updatedAt: now, hasDesktopLogs: true)
         var options = DisplayOptions(showFiveHour: false, showWeekly: false, showTPS: false)
-        let item = try #require(MenuBarFormatter.items(quota: quota(source: .logCache), sample: sample,
+        let item = try #require(codexItems(quota: quota(source: .logCache), sample: sample,
             options: options, todayUsage: usage, now: now, stale: true).first)
         #expect(item.metric == .todayTokens)
-        #expect(item.title == "13K")
+        #expect(item.title == "tok 13K")
         #expect(item.symbolName == "square.stack.3d.up.fill")
         #expect(!item.usesGPTLogo && item.tpsValue == nil)
         #expect(item.accessibilityLabel.contains(L10n.text("Today · this Mac")))
         #expect(item.accessibilityLabel.contains("13"))
         #expect(!item.title.contains("*"))
         options.showTodayTokens = false
-        #expect(MenuBarFormatter.items(quota: quota(), sample: sample, options: options,
+        #expect(codexItems(quota: quota(), sample: sample, options: options,
             todayUsage: usage, now: now).map(\.metric) == [.fallback])
         #expect(try JSONDecoder().decode(DisplayOptions.self, from: JSONEncoder().encode(options)) == options)
     }
@@ -335,23 +352,44 @@ import Testing
     @Test func todayTokensDistinguishMissingPartialAndBackfillingDataFromARealZero() throws {
         let options = DisplayOptions(showFiveHour: false, showWeekly: false, showTPS: false)
         func item(_ usage: LocalDayUsage?) throws -> MenuBarItem {
-            try #require(MenuBarFormatter.items(quota: nil, sample: nil, options: options,
+            try #require(codexItems(quota: nil, sample: nil, options: options,
                 todayUsage: usage, now: now).first)
         }
-        #expect(try item(nil).title == "—")
+        #expect(try item(nil).title == "tok —")
         var usage = LocalDayUsage(dayStart: Calendar.current.startOfDay(for: now),
             timeZoneIdentifier: Calendar.current.timeZone.identifier, updatedAt: now, hasDesktopLogs: true)
-        #expect(try item(usage).title == "0")
+        #expect(try item(usage).title == "tok 0")
         usage.isBackfilling = true
-        #expect(try item(usage).title == "—")
+        #expect(try item(usage).title == "tok —")
         usage.input = 1_000
         usage.responses = 1
-        #expect(try item(usage).title == "1K")
+        #expect(try item(usage).title == "tok 1K")
         #expect(try item(usage).accessibilityLabel.contains(L10n.text("Backfilling today's logs…")))
         usage.isPartial = true
         #expect(try item(usage).accessibilityLabel.contains(L10n.text("Partial estimate: some usage records could not be counted safely.")))
         usage.dayStart = usage.dayStart.addingTimeInterval(-86_400)
-        #expect(try item(usage).title == "—")
+        #expect(try item(usage).title == "tok —")
+    }
+
+    @Test func todayTokenLabelDefaultsOnAndCanBeHiddenWithoutChangingItsValueOrAccessibility() throws {
+        let legacy = try JSONDecoder().decode(DisplayOptions.self, from: Data(#"{"showTodayTokens":false,"fontSize":14}"#.utf8))
+        #expect(legacy.showTodayTokensLabel && !legacy.showTodayTokens && legacy.fontSize == 14)
+        var options = DisplayOptions(showFiveHour: false, showWeekly: false, showTPS: false)
+        let usage = LocalDayUsage(dayStart: Calendar.current.startOfDay(for: now),
+            timeZoneIdentifier: Calendar.current.timeZone.identifier, input: 12_345,
+            updatedAt: now, hasDesktopLogs: true)
+        let labeled = try #require(codexItems(quota: nil, sample: nil, options: options, todayUsage: usage, now: now).first)
+        #expect(labeled.title == "tok 12.3K")
+        options.showTodayTokensLabel = false
+        let hidden = try #require(codexItems(quota: nil, sample: nil, options: options, todayUsage: usage, now: now).first)
+        #expect(hidden.title == "12.3K")
+        #expect(hidden.metric == labeled.metric && hidden.symbolName == labeled.symbolName)
+        #expect(hidden.accessibilityLabel == labeled.accessibilityLabel)
+        for preset in DisplayPreset.allCases {
+            options.applyPreset(preset)
+            #expect(!options.showTodayTokensLabel)
+            #expect(try JSONDecoder().decode(DisplayOptions.self, from: JSONEncoder().encode(options)) == options)
+        }
     }
 
 }

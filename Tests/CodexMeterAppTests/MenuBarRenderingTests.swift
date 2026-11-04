@@ -207,36 +207,65 @@ import Testing
         guard let path = ProcessInfo.processInfo.environment["CODEXMETER_UI_REVIEW_DIR"], !path.isEmpty else { return }
         let directory = URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("menu-renderer", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        func export(_ image: NSImage, name: String, dark: Bool) throws {
+            let scale: CGFloat = 4
+            let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil,
+                pixelsWide: Int(image.size.width * scale), pixelsHigh: Int(image.size.height * scale),
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            context.cgContext.scaleBy(x: scale, y: scale)
+            let rect = NSRect(origin: .zero, size: image.size)
+            (dark ? NSColor(white: 0.12, alpha: 1) : .white).setFill()
+            rect.fill()
+            if image.isTemplate, let mask = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                context.cgContext.clip(to: rect, mask: mask)
+                (dark ? NSColor.white : .black).setFill()
+                rect.fill()
+            } else { image.draw(in: rect) }
+            NSGraphicsContext.restoreGraphicsState()
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: directory.appendingPathComponent(name), options: .atomic)
+        }
         let sample = TPSSample(id: "preview-fixture", model: "fixture-model", outputTokens: 734,
             reasoningTokens: 300, elapsedSeconds: 10, completedAt: now)
+        var csv = "appearance,active,layout,icon,decimals,width,height\n"
         for dark in [false, true] {
             let nativeAppearance = try appearance(dark)
             for active in [false, true] {
                 for layout in MenuBarTPSLayout.allCases {
                     for showIcon in [false, true] {
-                        let options = DisplayOptions(showFiveHour: false, showWeekly: false,
-                            tpsDecimals: 1, showTPSIcon: showIcon, tpsLayout: layout,
-                            colorStyle: .monochrome, itemStyle: .activeCapsule)
-                        let descriptor = try #require(MenuBarFormatter.items(quota: nil, sample: sample,
-                            options: options, now: now).first)
-                        let image = StatusItemAppearance.makeImage(descriptor, options: options,
-                            remaining: nil, appearance: nativeAppearance, isActive: active)
-                        let bytes = try #require(image.tiffRepresentation)
-                        let bitmap = try #require(NSBitmapImageRep(data: bytes))
-                        let png = try #require(bitmap.representation(using: .png, properties: [:]))
-                        let name = "renderer-\(dark ? "dark" : "light")-\(active ? "open" : "closed")-tps-\(layout.rawValue)-icon-\(showIcon ? "on" : "off").png"
-                        try png.write(to: directory.appendingPathComponent(name), options: .atomic)
+                        for precision in [0, 1] {
+                            var options = AppDefaults.display
+                            options.showFiveHour = false
+                            options.showWeekly = false
+                            options.tpsDecimals = precision
+                            options.showTPSIcon = showIcon
+                            options.tpsLayout = layout
+                            options.colorStyle = .monochrome
+                            let descriptor = try #require(MenuBarFormatter.items(quota: nil, sample: sample,
+                                options: options, now: now).first)
+                            let image = StatusItemAppearance.makeImage(descriptor, options: options,
+                                remaining: nil, appearance: nativeAppearance, isActive: active)
+                            let name = "renderer-\(dark ? "dark" : "light")-\(active ? "open" : "closed")-tps-\(layout.rawValue)-icon-\(showIcon ? "on" : "off")-decimals-\(precision).png"
+                            try export(image, name: name, dark: dark)
+                            csv += "\(dark ? "dark" : "light"),\(active),\(layout.rawValue),\(showIcon),\(precision),\(image.size.width),\(image.size.height)\n"
+                        }
                     }
                 }
-                let descriptor = MenuBarItem(metric: .todayTokens, title: "69.2M",
-                    accessibilityLabel: "Today's local tokens", symbolName: DetailSection.today.symbol)
-                let image = StatusItemAppearance.makeImage(descriptor, options: AppDefaults.display,
-                    remaining: nil, appearance: nativeAppearance, isActive: active)
-                let bytes = try #require(image.tiffRepresentation)
-                let bitmap = try #require(NSBitmapImageRep(data: bytes))
-                let png = try #require(bitmap.representation(using: .png, properties: [:]))
-                try png.write(to: directory.appendingPathComponent("renderer-\(dark ? "dark" : "light")-\(active ? "open" : "closed")-tokens-stacked-squares.png"), options: .atomic)
+                for showLabel in [true, false] {
+                    var options = AppDefaults.display
+                    options.showTodayTokensLabel = showLabel
+                    let descriptor = MenuBarItem(metric: .todayTokens, title: (showLabel ? "tok " : "") + "69.2M",
+                        accessibilityLabel: "Today's local tokens", symbolName: DetailSection.today.symbol)
+                    let image = StatusItemAppearance.makeImage(descriptor, options: options,
+                        remaining: nil, appearance: nativeAppearance, isActive: active)
+                    try export(image, name: "renderer-\(dark ? "dark" : "light")-\(active ? "open" : "closed")-tokens-label-\(showLabel ? "on" : "off").png", dark: dark)
+                }
             }
         }
+        try csv.write(to: directory.appendingPathComponent("tps-widths.csv"), atomically: true, encoding: .utf8)
     }
 }

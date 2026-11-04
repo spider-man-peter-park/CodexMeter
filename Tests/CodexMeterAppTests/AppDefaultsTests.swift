@@ -22,8 +22,8 @@ import Testing
             #expect(model.initialLoginPreference == (initialization == 0 ? true : nil))
             #expect(model.options == (try JSONDecoder().decode(DisplayOptions.self, from: capturedDisplay)))
             #expect(model.refreshOptions == RefreshOptions(quotaSeconds: 180, logSeconds: 2, displaySeconds: 60, accountSeconds: 900))
-            #expect(model.detailLayout.order == [.quota, .today, .speed, .account, .settings])
-            #expect(model.detailLayout.visibleSections == [.quota, .today, .speed])
+            #expect(model.detailLayout.order == [.quota, .today, .speed, .account, .cpu, .gpu, .ram, .network, .settings])
+            #expect(model.detailLayout.visibleSections == [.quota, .today, .speed, .cpu, .gpu, .ram, .network])
             #expect(model.reminders.options == (try JSONDecoder().decode(ReminderOptions.self, from: capturedReminders)))
             #expect(model.language == .system)
             #expect(model.autoRefresh)
@@ -100,5 +100,22 @@ import Testing
         #expect(AppModel(defaults: defaults, notificationCenter: TestReminderCenter()).options == expected)
         first.options.showTPSIcon = true
         #expect(AppModel(defaults: defaults, notificationCenter: TestReminderCenter()).options == original)
+    }
+
+    @Test func todayTokenLabelPersistsAcrossRestartAndVisibilityChanges() throws {
+        let (suite, defaults) = try preferences()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        #expect(first.options.showTodayTokensLabel)
+        var expected = first.options
+        first.options.showTodayTokensLabel = false
+        first.options.showTodayTokens = false
+        let restarted = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        expected.showTodayTokensLabel = false
+        expected.showTodayTokens = false
+        #expect(restarted.options == expected)
+        restarted.options.showTodayTokens = true
+        expected.showTodayTokens = true
+        #expect(AppModel(defaults: defaults, notificationCenter: TestReminderCenter()).options == expected)
     }
 }

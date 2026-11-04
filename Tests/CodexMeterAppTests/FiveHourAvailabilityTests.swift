@@ -34,7 +34,7 @@ import Testing
         #expect(model.reminders.options.recoveryEnabled && model.reminders.options.creditExpiryEnabled)
         #expect(changed > 0)
         let items = MenuBarFormatter.items(quota: model.quota, sample: nil, options: model.options)
-        #expect(items.map(\.metric) == [.weekly, .tps, .todayTokens])
+        #expect(items.map(\.metric) == [.weekly, .tps, .todayTokens, .cpu, .gpu, .ram, .network])
         #expect(await center.prompts == 0)
         model.options.showFiveHour = true
         var attempted = model.reminders.options

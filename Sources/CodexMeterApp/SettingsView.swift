@@ -4,12 +4,11 @@ import ServiceManagement
 import SwiftUI
 
 fileprivate enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, sections, appearance, metrics, refresh, notifications
+    case general, appearance, metrics, refresh, notifications
     var id: String { rawValue }
     var title: String {
         switch self {
         case .general: L10n.text("General")
-        case .sections: L10n.text("Detail panel layout")
         case .appearance: L10n.text("Menu bar appearance")
         case .metrics: L10n.text("Labels & visible metrics")
         case .refresh: L10n.text("Refresh periods")
@@ -19,7 +18,6 @@ fileprivate enum SettingsPane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .general: "gearshape"
-        case .sections: "rectangle.3.group"
         case .appearance: "paintbrush"
         case .metrics: "menubar.rectangle"
         case .refresh: "arrow.clockwise"
@@ -32,7 +30,6 @@ struct SettingsContent: View {
     @ObservedObject var model: AppModel
     @ObservedObject var updates: AppUpdates
     @ObservedObject private var reminders: AppReminders
-    @StateObject private var disclosure = SettingsDisclosureState()
     private let pane: SettingsPane?
 
     init(model: AppModel, updates: AppUpdates) {
@@ -60,8 +57,6 @@ struct SettingsContent: View {
                 VStack(alignment: .leading, spacing: 16) {
                     generalSettings
                     Divider()
-                    detailLayoutSettings
-                    Divider()
                     reminderSettings
                     Divider()
                     appearanceSettings
@@ -82,7 +77,6 @@ struct SettingsContent: View {
     @ViewBuilder private func contents(for pane: SettingsPane) -> some View {
         switch pane {
         case .general: generalSettings
-        case .sections: detailLayoutSettings
         case .appearance: appearanceSettings
         case .metrics: layoutSettings
         case .refresh: refreshSettings
@@ -95,15 +89,10 @@ struct SettingsContent: View {
         if pane != nil {
             content()
         } else {
-            DisclosureGroup(target.title, isExpanded: Binding(
-                get: { disclosure.expanded.contains(target) },
-                set: { expanded in
-                    if expanded { disclosure.expanded.insert(target) }
-                    else { disclosure.expanded.remove(target) }
-                })) {
-                content().padding(.top, 12)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(target.title).font(MeterStyle.sectionFont)
+                content()
             }
-            .font(MeterStyle.sectionFont)
         }
     }
 
@@ -143,50 +132,6 @@ struct SettingsContent: View {
         Text(text).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var detailLayoutSettings: some View {
-        settingsGroup(.sections) {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(model.detailLayout.order) { section in
-                    HStack(spacing: 8) {
-                        Label {
-                            Text(section.title).frame(maxWidth: .infinity, alignment: .leading)
-                        } icon: {
-                            Image(systemName: section.symbol).font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.secondary).frame(width: 16).accessibilityHidden(true)
-                        }
-                        layoutArrow(section, step: -1)
-                        layoutArrow(section, step: 1)
-                        Toggle(section.title, isOn: Binding(
-                            get: { !model.detailLayout.hidden.contains(section) },
-                            set: { model.detailLayout.setVisible($0, for: section) }))
-                            .labelsHidden().accessibilityLabel(L10n.text("Show \(section.title)"))
-                            .padding(.leading, 6)
-                    }
-                    .frame(minHeight: 30)
-                }
-                Divider()
-                note(L10n.text("Use arrows to reorder; switches show or hide sections."))
-                HStack {
-                    Spacer()
-                    Button(L10n.text("Default layout")) { model.detailLayout = AppDefaults.detailLayout }
-                        .buttonStyle(.bordered)
-                }
-            }
-        }
-    }
-
-    private func layoutArrow(_ section: DetailSection, step: Int) -> some View {
-        let title = step < 0 ? L10n.text("Move \(section.title) up") : L10n.text("Move \(section.title) down")
-        return Button { model.detailLayout.move(section, by: step) } label: {
-            Image(systemName: step < 0 ? "chevron.up" : "chevron.down")
-                .font(.system(size: 10, weight: .medium)).frame(width: 12, height: 14)
-        }
-        .buttonStyle(.bordered)
-        .frame(width: 26, height: 26)
-        .disabled(!model.detailLayout.canMove(section, by: step))
-        .help(title).accessibilityLabel(title)
     }
 
     private var appearanceSettings: some View {
@@ -261,7 +206,29 @@ struct SettingsContent: View {
                     settingsToggle(L10n.text("Show TPS lightning icon"), isOn: $model.options.showTPSIcon)
                 }
                 Divider()
-                settingsToggle(L10n.text("Show today's tokens"), isOn: $model.options.showTodayTokens)
+                metricSettings(L10n.text("Show today's tokens"), isOn: $model.options.showTodayTokens,
+                               detailsTitle: L10n.text("Today's tokens display options")) {
+                    settingsToggle(L10n.text("Show tok label"), isOn: $model.options.showTodayTokensLabel)
+                }
+                Divider()
+                metricSettings(L10n.text("Show CPU usage"), isOn: $model.options.showCPU,
+                               detailsTitle: L10n.text("CPU display options")) {
+                    systemMetricDisplaySettings($model.options.cpuDisplay)
+                }
+                Divider()
+                metricSettings(L10n.text("Show GPU usage"), isOn: $model.options.showGPU,
+                               detailsTitle: L10n.text("GPU display options")) {
+                    systemMetricDisplaySettings($model.options.gpuDisplay)
+                }
+                Divider()
+                metricSettings(L10n.text("Show RAM usage"), isOn: $model.options.showRAM,
+                               detailsTitle: L10n.text("RAM display options")) {
+                    systemMetricDisplaySettings($model.options.ramDisplay)
+                }
+                Divider()
+                settingsToggle(L10n.text("Show upload speed"), isOn: $model.options.showNetworkUpload)
+                settingsToggle(L10n.text("Show download speed"), isOn: $model.options.showNetworkDownload)
+                note(L10n.text("Network directions share one menu item: upload above, download below."))
             }
         }
     }
@@ -276,6 +243,19 @@ struct SettingsContent: View {
                     details()
                 }
                 .padding(.leading, 12)
+            }
+        }
+    }
+
+    private func systemMetricDisplaySettings(_ display: Binding<SystemMetricDisplayOptions>) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            settingsToggle(L10n.text("Show icon"), isOn: display.showIcon)
+            settingsToggle(L10n.text("Show label"), isOn: display.showLabel)
+            if display.wrappedValue.showLabel {
+                segmentedPicker(L10n.text("Label position"), selection: display.labelPosition) {
+                    Text(L10n.text("Above")).tag(MenuBarLabelPosition.above)
+                    Text(L10n.text("Left")).tag(MenuBarLabelPosition.leading)
+                }
             }
         }
     }
@@ -442,10 +422,6 @@ struct SettingsContent: View {
             }
         }
     }
-}
-
-private final class SettingsDisclosureState: ObservableObject {
-    @Published var expanded: Set<SettingsPane> = [.general, .sections]
 }
 
 private final class SettingsNavigationState: ObservableObject {

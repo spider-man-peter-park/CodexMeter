@@ -26,6 +26,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var tpsHistoryBackfilling = true
     @Published private(set) var tpsHistoryIsUnattributed = false
     @Published var sample: TPSSample?
+    @Published private(set) var systemMetrics: SystemMetricsSnapshot?
+    @Published private(set) var systemMetricsHistory: [SystemMetricsSnapshot] = []
+    @Published var selectedDetailSection: DetailSection = .quota
+    @Published var selectedQuotaMetric: MenuBarMetric?
+    @Published private(set) var systemMetricsNow = Date()
+    var currentSystemMetrics: SystemMetricsSnapshot? { systemMetrics?.fresh(at: systemMetricsNow) }
     @Published var now = Date()
     @Published var refreshing = false
     @Published var accountRefreshing = false
@@ -74,10 +80,13 @@ final class AppModel: ObservableObject {
     private let fiveHourAvailabilityKey: String
     private let accountCacheKey: String
     private let monitor: LogMonitor
+    private let systemMonitor = SystemMetricsMonitor()
     private var timers: [Timer] = []
     private var quotaTask: Task<Void, Never>?
     private var accountTask: Task<Void, Never>?
     private var logTask: Task<Void, Never>?
+    private var systemMetricsTask: Task<Void, Never>?
+    private var systemMetricsGeneration = 0
     private var polling = false
     private var started = false
     private var sleeping = false
@@ -199,6 +208,7 @@ final class AppModel: ObservableObject {
         started = true
         reminders.start()
         refresh()
+        pollSystemMetrics(reset: true)
         configureTimers()
     }
 
@@ -211,6 +221,7 @@ final class AppModel: ObservableObject {
         quotaTask?.cancel()
         accountTask?.cancel()
         logTask?.cancel()
+        cancelSystemMetrics()
     }
 
     private func configureTimers() {
@@ -232,6 +243,17 @@ final class AppModel: ObservableObject {
             self?.now = Date()
             self?.changed?()
         }
+        // Local hardware sampling is independent of Codex account refresh intervals.
+        timer(every: 2) { [weak self] in
+            guard let self else { return }
+            self.systemMetricsNow = Date()
+            self.systemMetricsHistory.removeAll {
+                let age = self.systemMetricsNow.timeIntervalSince($0.sampledAt)
+                return age < 0 || age > 120
+            }
+            self.pollSystemMetrics()
+            self.changed?()
+        }
     }
 
     private func timer(every interval: TimeInterval, action: @escaping @MainActor () -> Void) {
@@ -241,6 +263,47 @@ final class AppModel: ObservableObject {
         timer.tolerance = min(5, interval * 0.1)
         RunLoop.main.add(timer, forMode: .common)
         timers.append(timer)
+    }
+
+    private var needsSystemMetrics: Bool {
+        options.showCPU || options.showGPU || options.showRAM || options.showNetworkUpload || options.showNetworkDownload
+            || detailLayout.visibleSections.contains { [.cpu, .gpu, .ram, .network].contains($0) }
+    }
+
+    private func pollSystemMetrics(reset: Bool = false) {
+        guard started, !sleeping, systemMetricsTask == nil else { return }
+        guard needsSystemMetrics else {
+            if systemMetrics != nil { cancelSystemMetrics() }
+            return
+        }
+        let generation = systemMetricsGeneration
+        let shouldReset = reset || systemMetrics == nil
+        systemMetricsTask = Task { [weak self] in
+            guard let self else { return }
+            if shouldReset { await self.systemMonitor.reset() }
+            let snapshot = await self.systemMonitor.sample()
+            guard !Task.isCancelled, generation == self.systemMetricsGeneration, self.started, !self.sleeping else { return }
+            self.systemMetrics = snapshot
+            if let previous = self.systemMetricsHistory.last, snapshot.sampledAt < previous.sampledAt {
+                self.systemMetricsHistory.removeAll()
+            }
+            self.systemMetricsHistory.append(snapshot)
+            self.systemMetricsHistory = Array(self.systemMetricsHistory.filter {
+                snapshot.sampledAt.timeIntervalSince($0.sampledAt) <= 120
+            }.suffix(61))
+            self.systemMetricsNow = Date()
+            self.systemMetricsTask = nil
+            self.changed?()
+        }
+    }
+
+    private func cancelSystemMetrics() {
+        systemMetricsGeneration += 1
+        systemMetricsTask?.cancel()
+        systemMetricsTask = nil
+        systemMetrics = nil
+        systemMetricsHistory.removeAll()
+        changed?()
     }
 
     func refresh() {
@@ -328,6 +391,7 @@ final class AppModel: ObservableObject {
 
     func systemWillSleep() {
         sleeping = true
+        cancelSystemMetrics()
         cancelRecoveryRefresh()
     }
 
@@ -335,6 +399,7 @@ final class AppModel: ObservableObject {
         sleeping = false
         now = Date()
         changed?()
+        pollSystemMetrics(reset: true)
         if canRefresh { requestRecoveryRefresh() }
     }
 

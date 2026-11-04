@@ -5,16 +5,25 @@ import Testing
 struct DetailLayoutTests {
     @Test func defaultLayoutKeepsTheSettingsSectionReachable() {
         let layout = DetailLayout()
-        #expect(layout.order == [.quota, .today, .speed, .account, .settings])
+        #expect(layout.order == [.quota, .today, .speed, .account, .cpu, .gpu, .ram, .network, .settings])
         #expect(layout.visibleSections == layout.order)
     }
 
     @Test func savedUnknownAndDuplicateIDsKeepKnownOrderAndAppendMissingSections() throws {
         let data = Data(#"{"order":["future","account","account","today"],"hidden":["future","quota","quota"]}"#.utf8)
         let layout = try JSONDecoder().decode(DetailLayout.self, from: data)
-        #expect(layout.order == [.account, .today, .quota, .speed, .settings])
+        #expect(layout.order == [.account, .today, .quota, .speed, .cpu, .gpu, .ram, .network, .settings])
         #expect(layout.hidden == [.quota])
-        #expect(layout.visibleSections == [.account, .today, .speed, .settings])
+        #expect(layout.visibleSections == [.account, .today, .speed, .cpu, .gpu, .ram, .network, .settings])
+    }
+
+    @Test func previousLayoutRetainsOrderAndHiddenSectionsWhileAddingSystemModules() throws {
+        let data = Data(#"{"order":["settings","today","account","quota","speed"],"hidden":["account","quota"]}"#.utf8)
+        let layout = try JSONDecoder().decode(DetailLayout.self, from: data)
+        #expect(layout.order == [.settings, .today, .account, .quota, .speed, .cpu, .gpu, .ram, .network])
+        #expect(layout.hidden == [.account, .quota])
+        #expect(layout.visibleSections == [.settings, .today, .speed, .cpu, .gpu, .ram, .network])
+        #expect(try JSONDecoder().decode(DetailLayout.self, from: JSONEncoder().encode(layout)) == layout)
     }
 
     @Test func malformedFieldsFallBackIndependently() throws {
@@ -23,7 +32,7 @@ struct DetailLayoutTests {
         #expect(brokenOrder.order == DetailSection.allCases)
         #expect(brokenOrder.hidden == [.account])
         let brokenHidden = try decoder.decode(DetailLayout.self, from: Data(#"{"order":["speed"],"hidden":false}"#.utf8))
-        #expect(brokenHidden.order == [.speed, .quota, .today, .account, .settings])
+        #expect(brokenHidden.order == [.speed, .quota, .today, .account, .cpu, .gpu, .ram, .network, .settings])
         #expect(brokenHidden.hidden.isEmpty)
         #expect(try decoder.decode(DetailLayout.self, from: Data("{}".utf8)) == DetailLayout())
     }
@@ -32,10 +41,10 @@ struct DetailLayoutTests {
         var layout = DetailLayout()
         layout.setVisible(false, for: .today)
         layout.move(.account, by: -1)
-        #expect(layout.order == [.quota, .today, .account, .speed, .settings])
-        #expect(layout.visibleSections == [.quota, .account, .speed, .settings])
+        #expect(layout.order == [.quota, .today, .account, .speed, .cpu, .gpu, .ram, .network, .settings])
+        #expect(layout.visibleSections == [.quota, .account, .speed, .cpu, .gpu, .ram, .network, .settings])
         layout.setVisible(true, for: .today)
-        #expect(layout.visibleSections == [.quota, .today, .account, .speed, .settings])
+        #expect(layout.visibleSections == [.quota, .today, .account, .speed, .cpu, .gpu, .ram, .network, .settings])
     }
 
     @Test func movesAtBoundariesAndInvalidStepsNeverLoseOrDuplicateASection() {
@@ -46,7 +55,7 @@ struct DetailLayoutTests {
         }
         #expect(layout == DetailLayout())
         layout.move(.quota, by: 1)
-        #expect(layout.order == [.today, .quota, .speed, .account, .settings])
+        #expect(layout.order == [.today, .quota, .speed, .account, .cpu, .gpu, .ram, .network, .settings])
         #expect(Set(layout.order).count == DetailSection.allCases.count)
     }
 
@@ -58,7 +67,7 @@ struct DetailLayoutTests {
         #expect(restored == layout)
         #expect(restored.visibleSections.isEmpty)
         let fields = try #require(JSONSerialization.jsonObject(with: data) as? [String: [String]])
-        #expect(fields["order"] == ["settings", "account", "quota", "today", "speed"])
+        #expect(fields["order"] == ["settings", "account", "quota", "today", "speed", "cpu", "gpu", "ram", "network"])
         #expect(fields["hidden"]?.count == DetailSection.allCases.count)
     }
 }

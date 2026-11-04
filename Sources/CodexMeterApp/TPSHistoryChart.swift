@@ -75,7 +75,7 @@ struct TPSHistoryChart: View {
                     Text(L10n.text("Select a response")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
                         .help(L10n.text("Select a response for its model, TPS and completion time."))
                 }
-                }.frame(height: 36, alignment: .topLeading)
+                }.frame(minHeight: 14, alignment: .topLeading)
                 if isBackfilling { Text(L10n.text("Loading previous responses…")).font(MeterStyle.captionFont).foregroundStyle(.secondary) }
                 if isUnattributed {
                     MeterStatusLabel(title: L10n.text("Unidentified source"), symbol: "questionmark.circle")

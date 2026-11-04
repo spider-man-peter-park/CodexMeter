@@ -23,15 +23,20 @@ Built with Swift, SwiftUI and AppKit. No Electron, separate API key or third-par
 | --- | --- | --- |
 | 5-hour quota | `82% · 2h14m` | Remaining quota and time until reset, when reported by your account |
 | 7-day quota | `61% · 4d8h` | Remaining weekly quota and reset countdown |
-| Today's local tokens | `69.2M` | Estimated input + output tokens recorded on this Mac today |
+| Today's local tokens | `tok 69.2M` | Estimated input + output tokens recorded on this Mac today |
 | Latest response | `TPS 73` | Estimated effective output tokens per second for a completed response |
+| CPU / GPU | `CPU 27%` / `GPU 9%` | Local processor utilization; unavailable GPU telemetry shows a dash |
+| RAM | `RAM 50%` | Physical memory used by apps, wired memory and compression |
+| Upload / download | `↑ 1.5 KB/s` above `↓ 2.3 MB/s` | Both transfer rates share one native menu bar item |
 
 *Illustrative values, not live readings.* Each metric is an independent native menu bar item: hide what you do not need, and hold Command to drag items into place. Accounts that report only weekly quota do not keep an extra unsupported 5-hour item visible after a successful read.
 
-- **More detail when you need it.** Account token history, a recent-response TPS chart and remaining reset credits, when available from Codex.
+- **More detail when you need it.** Each menu bar item opens its matching detail. RAM includes pressure, a two-minute history, memory composition, swap and top processes; CPU includes core usage, load averages and top processes; GPU includes supported driver readings and hardware information. Network details include the top processes with separate upload/download rates. Account token history, recent-response TPS charts and reset credits remain available.
 - **Local reminders.** Low-quota, quota-recovery and reset-credit expiry alerts, with configurable thresholds and macOS notification permission.
-- **Your menu bar, your layout.** Choose labels, typography, colors and inline or stacked TPS; reorder or hide detail sections.
+- **Your menu bar, your layout.** Choose labels, typography, colors and inline or stacked TPS. CPU/GPU/RAM each have independent icon and label switches, with the label above or left of its number. Switch between enabled modules through the other-details menu.
 - **Native macOS behavior.** Light and dark appearance, launch at login, English and Simplified Chinese. No Dock icon or main window.
+
+Each menu bar item uses a compact fixed width for its selected font, labels and layout. Changing readings, network units, countdowns or cache state does not move neighboring items. Stacked RAM aligns its label with the numeric digits, excluding `%`. Today's tokens adds an optional `tok` label between its icon and count. Details open fully expanded and fit their content, with scrolling only when content exceeds the screen.
 
 ## Install
 
@@ -70,11 +75,13 @@ For Homebrew updates, run `brew update` followed by `brew upgrade --cask spider-
 
 ## What the numbers mean
 
-**Quota is not a token budget.** The quota percentages and reset windows come from Codex's account response, not a conversion from local token counts. A passed countdown does not prove quota has replenished; CodexMeter waits for a fresh reading. `*` marks cached or stale quota, and unavailable data is not treated as zero.
+**Quota is not a token budget.** The quota percentages and reset windows come from Codex's account response, not a conversion from local token counts. A passed countdown does not prove quota has replenished; CodexMeter waits for a fresh reading. Cached or stale quota is identified in hover help and details; unavailable data is not treated as zero.
 
 **Today's tokens are a local estimate.** They cover identifiable Desktop sessions and traceable subagents in this Mac's available logs, using the Mac's local day. Input includes cached input; output includes reasoning output, so neither subtotal is added twice. This is not a guaranteed account-wide total, billing figure or measure of remaining quota. Server-reported account statistics are shown separately and may lag.
 
 **TPS is effective response speed, not a benchmark.** It divides a completed response's output tokens by its measurable elapsed time. Waiting, buffering and other timing effects can influence it. It is not streaming decode speed or task-wide throughput. Unsupported or incomplete timing produces no new sample, not a fabricated number. Desktop samples are preferred; unattributed fallback samples carry a warning and may include CLI activity.
+
+**System metrics describe this Mac.** CPU is total busy time across all cores between samples. GPU uses macOS driver telemetry and shows the busiest reporting GPU on multi-GPU Macs; unsupported telemetry remains unavailable. RAM counts app, wired and physically compressed memory, excluding reclaimable cache. Network speeds use decimal bytes per second (1 KB = 1,000 bytes), summed across active Wi-Fi/Ethernet interfaces; loopback and virtual interfaces are excluded to avoid double counting. These are transfer rates, not an internet speed test. Local metrics refresh every two seconds independently of Codex account refresh, pause during sleep and need a new baseline after wake. Each menu bar item can be hidden separately, and CPU, GPU, RAM and Network have configurable detail sections.
 
 See the [data-source reference](docs/usage.md#data-and-refresh-behavior) and [TPS limitations](docs/usage.md#effective-tps-and-accuracy) for exact scope and parsing behavior.
 
@@ -82,6 +89,7 @@ See the [data-source reference](docs/usage.md#data-and-refresh-behavior) and [TP
 
 - **Account queries:** CodexMeter starts the installed Codex App Server and requests account, quota and usage information. The Codex subprocess uses your existing sign-in and makes its normal service requests. CodexMeter does not read or store authentication tokens, submit prompts, start coding tasks or consume reset credits.
 - **Local logs:** Token and TPS estimates are derived from local Codex session files. CodexMeter retains derived counters and parsing checkpoints, not prompt or response text. It does not upload conversations, usage counters or project paths.
+- **System metrics:** CPU, GPU, memory and network counters are read locally through macOS APIs. Hardware readings stay in memory; no network traffic contents are inspected.
 - **Optional update checks:** Manual checks, or automatic checks if enabled, fetch public version metadata from GitHub. There is no telemetry, proxy, cloud sync or separate CodexMeter service.
 
 This is not an entirely offline app: live account readings require Codex's service connection. See [storage and privacy details](docs/usage.md#incremental-files-and-privacy), including custom `CODEX_HOME` support.

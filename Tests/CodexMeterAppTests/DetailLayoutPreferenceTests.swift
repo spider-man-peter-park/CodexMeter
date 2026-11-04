@@ -16,8 +16,8 @@ import Testing
         model.detailLayout.setVisible(false, for: .quota)
         model.detailLayout.setVisible(false, for: .settings)
         let restarted = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
-        #expect(restarted.detailLayout.order == [.quota, .account, .today, .speed, .settings])
-        #expect(restarted.detailLayout.visibleSections == [.today, .speed])
+        #expect(restarted.detailLayout.order == [.quota, .account, .today, .speed, .cpu, .gpu, .ram, .network, .settings])
+        #expect(restarted.detailLayout.visibleSections == [.today, .speed, .cpu, .gpu, .ram, .network])
         #expect(restarted.options == menuBar)
         #expect(restarted.refreshOptions == refresh)
         restarted.detailLayout = AppDefaults.detailLayout
@@ -35,6 +35,6 @@ import Testing
         defaults.set(Data("invalid JSON".utf8), forKey: "detailLayout")
         let model = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
         #expect(model.detailLayout == AppDefaults.detailLayout)
-        #expect(model.detailLayout.visibleSections == [.quota, .today, .speed])
+        #expect(model.detailLayout.visibleSections == [.quota, .today, .speed, .cpu, .gpu, .ram, .network])
     }
 }
