@@ -199,40 +199,64 @@ private struct MemoryCompositionBar: View {
     }
 }
 
-private struct SystemUsageHistoryChart: View {
-    let history: [SystemMetricsSnapshot]
-    let value: (SystemMetricsSnapshot) -> Double?
-    @StateObject private var selection = SystemUsageHistorySelection()
+struct SystemUsageHistoryData {
+    static let duration: TimeInterval = 120
+    static let axisValues: [Double] = [-120, -60, 0]
 
-    private struct Point: Identifiable {
+    struct Point: Identifiable, Equatable {
         let id: Int
         let time: Date
+        let secondsFromEnd: TimeInterval
         let value: Double
         let segment: Int
     }
 
-    private var end: Date { history.last?.sampledAt ?? Date() }
-    private var start: Date { end.addingTimeInterval(-120) }
-    private var points: [Point] {
+    let end: Date
+    let hasHistory: Bool
+    let points: [Point]
+
+    init(history: [SystemMetricsSnapshot], value: (SystemMetricsSnapshot) -> Double?) {
+        end = history.last?.sampledAt ?? .distantPast
+        hasHistory = !history.isEmpty
+        let windowEnd = end
+        let start = windowEnd.addingTimeInterval(-Self.duration)
         var segment = 0
         var previous: Date?
-        return history.enumerated().compactMap { index, snapshot in
-            guard snapshot.sampledAt >= start, snapshot.sampledAt <= end,
+        // Chart closures hold only scalar points, never complete hardware/process snapshots.
+        points = history.suffix(61).enumerated().compactMap { index, snapshot in
+            guard snapshot.sampledAt >= start, snapshot.sampledAt <= windowEnd,
                   let number = value(snapshot), number.isFinite, (0...100).contains(number) else {
                 segment += 1
                 return nil
             }
             if let previous, snapshot.sampledAt.timeIntervalSince(previous) > 10 { segment += 1 }
             previous = snapshot.sampledAt
-            return Point(id: index, time: snapshot.sampledAt, value: number, segment: segment)
+            return Point(id: index, time: snapshot.sampledAt,
+                         secondsFromEnd: snapshot.sampledAt.timeIntervalSince(windowEnd), value: number, segment: segment)
         }
     }
-    private var selected: Point? {
-        guard let selectedDate = selection.date else { return nil }
+
+    func nearest(to selectedDate: Date?) -> Point? {
+        guard let selectedDate else { return nil }
         return points.min { abs($0.time.timeIntervalSince(selectedDate)) < abs($1.time.timeIntervalSince(selectedDate)) }
     }
 
+    static func axisLabel(for seconds: Double) -> String {
+        seconds == 0 ? L10n.text("Now") : seconds == -duration ? "−2m" : "−1m"
+    }
+}
+
+private struct SystemUsageHistoryChart: View {
+    private let data: SystemUsageHistoryData
+    @StateObject private var selection = SystemUsageHistorySelection()
+
+    init(history: [SystemMetricsSnapshot], value: (SystemMetricsSnapshot) -> Double?) {
+        data = SystemUsageHistoryData(history: history, value: value)
+    }
+
     var body: some View {
+        let points = data.points
+        let selected = data.nearest(to: selection.date)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(L10n.text("Usage history")).font(MeterStyle.sectionFont)
@@ -240,37 +264,46 @@ private struct SystemUsageHistoryChart: View {
                 Text(L10n.text("Last 2 minutes")).font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }
             if points.isEmpty {
-                Text(history.isEmpty ? L10n.text("Waiting for usage history…") : L10n.text("No valid readings in the last 2 minutes."))
+                Text(!data.hasHistory ? L10n.text("Waiting for usage history…") : L10n.text("No valid readings in the last 2 minutes."))
                     .font(MeterStyle.captionFont).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, minHeight: 88, alignment: .center)
             } else {
                 Chart {
                     ForEach(points) { point in
-                        AreaMark(x: .value(L10n.text("Time"), point.time), yStart: .value("", 0.0),
+                        let accessibilityTime = Text(point.time.formatted(.dateTime.hour().minute().second().locale(L10n.locale)))
+                        let accessibilityUsage = Text(SystemMetricsFormatter.percent(point.value))
+                        AreaMark(x: .value(L10n.text("Time"), point.secondsFromEnd), yStart: .value("", 0.0),
                             yEnd: .value(L10n.text("Usage"), point.value), series: .value("Run", point.segment))
                             .foregroundStyle(Color.accentColor.opacity(0.1))
-                        LineMark(x: .value(L10n.text("Time"), point.time), y: .value(L10n.text("Usage"), point.value),
+                            .accessibilityLabel(accessibilityTime)
+                            .accessibilityValue(accessibilityUsage)
+                        LineMark(x: .value(L10n.text("Time"), point.secondsFromEnd), y: .value(L10n.text("Usage"), point.value),
                             series: .value("Run", point.segment))
                             .foregroundStyle(Color.accentColor).lineStyle(StrokeStyle(lineWidth: 1.5))
+                            .accessibilityLabel(accessibilityTime)
+                            .accessibilityValue(accessibilityUsage)
                         if points.count == 1 {
-                            PointMark(x: .value(L10n.text("Time"), point.time), y: .value(L10n.text("Usage"), point.value))
+                            PointMark(x: .value(L10n.text("Time"), point.secondsFromEnd), y: .value(L10n.text("Usage"), point.value))
                                 .foregroundStyle(Color.accentColor).symbolSize(20)
+                                .accessibilityLabel(accessibilityTime)
+                                .accessibilityValue(accessibilityUsage)
                         }
                     }
                     if let selected {
-                        RuleMark(x: .value(L10n.text("Time"), selected.time))
+                        RuleMark(x: .value(L10n.text("Time"), selected.secondsFromEnd))
                             .foregroundStyle(Color.secondary).lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                     }
                 }
-                .chartXScale(domain: start...end)
+                .chartXScale(domain: -SystemUsageHistoryData.duration...0)
                 .chartYScale(domain: 0.0...100.0)
                 .chartLegend(.hidden)
                 .chartXAxis {
-                    AxisMarks(values: [start, start.addingTimeInterval(60), end]) { tick in
+                    // Fixed relative ticks let Charts reuse axis labels across samples.
+                    AxisMarks(values: SystemUsageHistoryData.axisValues) { tick in
                         AxisValueLabel {
-                            if let date = tick.as(Date.self) {
-                                Text(date == end ? L10n.text("Now") : date == start ? "−2m" : "−1m")
+                            if let seconds = tick.as(Double.self) {
+                                Text(SystemUsageHistoryData.axisLabel(for: seconds))
                                     .font(MeterStyle.captionFont)
                             }
                         }
@@ -284,7 +317,7 @@ private struct SystemUsageHistoryChart: View {
                         }
                     }
                 }
-                .chartXSelection(value: $selection.date)
+                .chartXSelection(value: selection.relativeSeconds(endingAt: data.end))
                 .frame(height: 72)
                 .accessibilityLabel(L10n.text("Usage history"))
             }
@@ -305,8 +338,13 @@ private struct SystemUsageHistoryChart: View {
     }
 }
 
-private final class SystemUsageHistorySelection: ObservableObject {
+final class SystemUsageHistorySelection: ObservableObject {
     @Published var date: Date?
+
+    func relativeSeconds(endingAt end: Date) -> Binding<Double?> {
+        Binding(get: { [self] in date.map { $0.timeIntervalSince(end) } },
+                set: { [self] in date = $0.map { end.addingTimeInterval($0) } })
+    }
 }
 
 private struct SystemProcessList: View {

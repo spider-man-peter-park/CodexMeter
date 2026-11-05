@@ -159,6 +159,20 @@ If a synced Documents folder adds Finder metadata that prevents code signing, se
 
 The test script discovers the installed Swift Testing macro plugin. The current development machine has Command Line Tools without full Xcode; the native `.app` and unit tests are built locally. The included GitHub Actions workflow separately exercises the Xcode app project on a full Xcode runner. Both that Xcode build and the standalone app build passed during initial delivery.
 
+### System history memory regression
+
+An opt-in test renders the real system detail chart in an isolated window with synthetic readings. It does not load Codex logs, query an account, or change app preferences. Run it separately from the normal suite on a Mac with a graphical session:
+
+```bash
+CODEXMETER_MEMORY_SOAK_ITERATIONS=3000 \
+CODEXMETER_MEMORY_SOAK_WARMUP=1000 \
+CODEXMETER_MEMORY_SOAK_INTERVAL=0.02 \
+CODEXMETER_MEMORY_SOAK_REPORT_DIRECTORY=/private/tmp/codexmeter-memory-soak \
+./scripts/test.sh --no-parallel --filter renderedSystemHistoryMemoryPlateausAfterWarmup
+```
+
+The test records physical footprint in `samples.jsonl` and fails if the final footprint exceeds the post-warmup reading by more than 32 MiB. Each update advances the synthetic sampling clock by two seconds; this accelerates chart refreshes rather than measuring hours of elapsed app use. Set `CODEXMETER_MEMORY_SOAK_SECTION` to `cpu`, `gpu`, or `ram` (the default) to exercise each shared chart. Optional `CODEXMETER_MEMORY_SOAK_WARMUP_HOLD_SECONDS` and `CODEXMETER_MEMORY_SOAK_HOLD_SECONDS` keep the window alive for external `heap`/`vmmap` summaries; the report directory's `pid` file identifies the test process. Use a fresh report directory for each run.
+
 ## Data and refresh behavior
 
 Quota reads launch the installed Codex executable's `app-server --help` first, select its supported stdio transport, then exchange newline-delimited JSON-RPC:

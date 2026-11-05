@@ -208,7 +208,15 @@ enum StatusItemAppearance {
         let padding = horizontalPadding(options)
         let leading = symbolSize.map { $0.width + symbolGap(options) } ?? 0
         let gap: CGFloat = countdown == nil ? 0 : (options.spacing == .compact ? 3 : 4)
-        let size = reservedSize ?? NSSize(width: max(20, ceil(padding * 2 + leading + primaryBounds.width + gap + (countdownBounds?.width ?? 0))),
+        let dotGap: CGFloat = options.spacing == .compact ? 5 : 6
+        let countdownWidth: CGFloat
+        if let countdown, options.countdownSeparator == .dot {
+            let font = quotaCountdownFont(options)
+            countdownWidth = bounds(countdown, font: font).width + bounds("·", font: font).width + dotGap * 2
+        } else {
+            countdownWidth = gap + (countdownBounds?.width ?? 0)
+        }
+        let size = reservedSize ?? NSSize(width: max(20, ceil(padding * 2 + leading + primaryBounds.width + countdownWidth)),
             height: max(20, ceil(max(primaryBounds.height, countdownBounds?.height ?? 0, symbolSize?.height ?? 0) + 2)))
         let start = padding + leading
         let countdownStart = start + primaryBounds.width + gap
@@ -221,13 +229,12 @@ enum StatusItemAppearance {
             let font = quotaCountdownFont(options)
             let timeWidth = bounds(countdown, font: font).width
             let dotWidth = bounds("·", font: font).width
-            // Reserve a minimal gap on each side even when exceptional text needs ellipsis.
-            let available = max(0, size.width - padding - primaryRect.maxX - dotWidth - 2)
-            let width = min(timeWidth, available)
-            let timeRect = NSRect(x: size.width - padding - width, y: 0, width: width, height: size.height)
-            let center = (primaryRect.maxX + timeRect.minX) / 2
-            countdownRect = timeRect
-            separatorRect = NSRect(x: center - dotWidth / 2, y: 0, width: dotWidth, height: size.height)
+            // Keep normal gaps around the dot; leave spare capacity after the countdown.
+            let dotStart = primaryRect.maxX + dotGap
+            let timeStart = dotStart + dotWidth + dotGap
+            let available = max(0, size.width - padding - timeStart)
+            countdownRect = NSRect(x: timeStart, y: 0, width: min(timeWidth, available), height: size.height)
+            separatorRect = NSRect(x: dotStart, y: 0, width: dotWidth, height: size.height)
         }
         return QuotaGeometry(size: size, primary: primaryRect, countdown: countdownRect, separator: separatorRect,
             symbol: symbolSize.map { NSRect(x: padding, y: (size.height - $0.height) / 2, width: $0.width, height: $0.height) })

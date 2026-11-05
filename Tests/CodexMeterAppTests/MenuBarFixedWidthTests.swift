@@ -98,9 +98,10 @@ import Testing
         }
     }
 
-    @Test func weeklyCountdownReachesTheTrailingInsetWithoutResizingAsItShortens() throws {
+    @Test func weeklySpaceCountdownReachesTheTrailingInsetWithoutResizingAsItShortens() throws {
         var options = AppDefaults.display
         options.quotaLabelStyle = .window
+        options.countdownSeparator = .space
         let appearance = try #require(NSAppearance(named: .aqua))
         var referenceSize: NSSize?
         for (minutes, percent) in [(10080, 100), (8639, 82), (1440, 9), (1439, 100), (59, 0), (0, 100)] {
@@ -152,12 +153,14 @@ import Testing
         }
     }
 
-    @Test func quotaDotCentersBetweenVisibleTextAndSharesItsVerticalCenter() throws {
+    @Test func quotaDotKeepsModerateSymmetricGapsWithoutResizing() throws {
         for design in MenuBarFontDesign.allCases {
-            for size in [9.0, 12.0, 16.0] {
+            for (size, spacing) in [9.0, 12.0, 16.0].flatMap({ size in MenuBarSpacing.allCases.map { (size, $0) } }) {
                 for symbol in [nil, NSSize(width: 20, height: 20)] {
                     for style in CountdownStyle.allCases {
                         var options = AppDefaults.display
+                        options.countdownSeparator = .dot
+                        options.spacing = spacing
                         options.fontDesign = design
                         options.fontSize = size
                         options.countdownStyle = style
@@ -172,10 +175,10 @@ import Testing
                                 #expect(actual.size == capacity.size)
                                 let leftGap = dot.minX - actual.primary.maxX
                                 let rightGap = countdown.minX - dot.maxX
-                                #expect(leftGap > 0 && rightGap > 0)
+                                #expect(leftGap >= 5 && leftGap <= 6 && rightGap >= 5 && rightGap <= 6)
                                 #expect(abs(leftGap - rightGap) < 0.001)
                                 #expect(dot.midY == actual.primary.midY && dot.midY == countdown.midY)
-                                #expect(abs(countdown.maxX - (actual.size.width - options.itemHorizontalPadding)) < 0.001)
+                                #expect(countdown.maxX <= actual.size.width - options.itemHorizontalPadding + 0.001)
                             }
                         }
                         #expect(StatusItemAppearance.quotaGeometry(primary: "—", countdown: nil,

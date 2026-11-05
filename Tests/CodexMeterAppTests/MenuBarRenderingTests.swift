@@ -207,8 +207,7 @@ import Testing
         guard let path = ProcessInfo.processInfo.environment["CODEXMETER_UI_REVIEW_DIR"], !path.isEmpty else { return }
         let directory = URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("menu-renderer", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        func export(_ image: NSImage, name: String, dark: Bool) throws {
-            let scale: CGFloat = 4
+        func export(_ image: NSImage, name: String, dark: Bool, scale: CGFloat = 4) throws {
             let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil,
                 pixelsWide: Int(image.size.width * scale), pixelsHigh: Int(image.size.height * scale),
                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -235,6 +234,18 @@ import Testing
         for dark in [false, true] {
             let nativeAppearance = try appearance(dark)
             for active in [false, true] {
+                var quotaOptions = AppDefaults.display
+                quotaOptions.quotaLabelStyle = .gpt
+                quotaOptions.countdownSeparator = .dot
+                quotaOptions.spacing = .compact
+                quotaOptions.fontSize = 12
+                quotaOptions.colorStyle = .monochrome
+                let quota = MenuBarItem(metric: .weekly, title: "71% · 6d0h", accessibilityLabel: "7-day quota",
+                    usesGPTLogo: true, quotaPrimary: "71%", quotaCountdown: "6d0h")
+                let quotaImage = StatusItemAppearance.makeImage(quota, options: quotaOptions, remaining: nil,
+                    appearance: nativeAppearance, isActive: active)
+                try export(quotaImage,
+                    name: "renderer-\(dark ? "dark" : "light")-\(active ? "open" : "closed")-quota-71.png", dark: dark, scale: 2)
                 for layout in MenuBarTPSLayout.allCases {
                     for showIcon in [false, true] {
                         for precision in [0, 1] {
