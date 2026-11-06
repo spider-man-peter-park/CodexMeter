@@ -1,7 +1,35 @@
 import AppKit
 import CodexMeterCore
+import Combine
 import ServiceManagement
 import SwiftUI
+
+final class AppSettingsObservation: ObservableObject {
+    let objectWillChange = ObservableObjectPublisher()
+    let model: AppModel
+    private var subscription: AnyCancellable?
+
+    @MainActor init(model: AppModel) {
+        self.model = model
+        // Settings observe preference changes, independently of live metric refreshes.
+        let changes: [AnyPublisher<Void, Never>] = [
+            model.$options.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$detailLayout.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$refreshOptions.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$autoRefresh.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$language.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$appearance.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$fiveHourAvailable.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$loginEnabled.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$loginWarning.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher()
+        ]
+        subscription = Publishers.MergeMany(changes).sink { [weak self] in self?.objectWillChange.send() }
+    }
+
+    @MainActor func binding<Value>(_ keyPath: ReferenceWritableKeyPath<AppModel, Value>) -> Binding<Value> {
+        Binding(get: { self.model[keyPath: keyPath] }, set: { self.model[keyPath: keyPath] = $0 })
+    }
+}
 
 fileprivate enum SettingsPane: String, CaseIterable, Identifiable {
     case general, appearance, metrics, refresh, notifications
@@ -27,7 +55,8 @@ fileprivate enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 struct SettingsContent: View {
-    @ObservedObject var model: AppModel
+    @StateObject private var settings: AppSettingsObservation
+    private var model: AppModel { settings.model }
     @ObservedObject var updates: AppUpdates
     @ObservedObject private var reminders: AppReminders
     private let pane: SettingsPane?
@@ -37,7 +66,7 @@ struct SettingsContent: View {
     }
 
     fileprivate init(model: AppModel, updates: AppUpdates, pane: SettingsPane?) {
-        self.model = model
+        _settings = StateObject(wrappedValue: AppSettingsObservation(model: model))
         self.updates = updates
         self.reminders = model.reminders
         self.pane = pane
@@ -147,29 +176,29 @@ struct SettingsContent: View {
                 settingsRow(L10n.text("Font size")) {
                     HStack(spacing: 8) {
                         Text(String(format: "%.0f pt", model.options.normalizedFontSize)).monospacedDigit()
-                        MeterFontStepper(value: $model.options.fontSize)
+                        MeterFontStepper(value: settings.binding(\.options.fontSize))
                             .frame(width: 64, height: 28)
                     }.frame(width: controlWidth, alignment: .trailing)
                 }
-                segmentedPicker(L10n.text("Weight"), selection: $model.options.fontWeight) {
+                segmentedPicker(L10n.text("Weight"), selection: settings.binding(\.options.fontWeight)) {
                     Text(L10n.text("Regular")).tag(MenuBarFontWeight.regular)
                     Text(L10n.text("Medium")).tag(MenuBarFontWeight.medium)
                     Text(L10n.text("Semibold")).tag(MenuBarFontWeight.semibold)
                 }
-                segmentedPicker(L10n.text("Typeface"), selection: $model.options.fontDesign) {
+                segmentedPicker(L10n.text("Typeface"), selection: settings.binding(\.options.fontDesign)) {
                     Text(L10n.text("System")).tag(MenuBarFontDesign.system)
                     Text(L10n.text("Rounded")).tag(MenuBarFontDesign.rounded)
                     Text(L10n.text("Mono")).tag(MenuBarFontDesign.monospaced)
                 }
-                menuPicker(L10n.text("Color"), selection: $model.options.colorStyle) {
+                menuPicker(L10n.text("Color"), selection: settings.binding(\.options.colorStyle)) {
                     ForEach(MenuBarColorStyle.allCases, id: \.self) { Text(L10n.lookup($0.rawValue.capitalized)).tag($0) }
                 }
-                segmentedPicker(L10n.text("Background"), selection: $model.options.itemStyle) {
+                segmentedPicker(L10n.text("Background"), selection: settings.binding(\.options.itemStyle)) {
                     Text(L10n.text("On open")).tag(MenuBarItemStyle.activeCapsule)
                     Text(L10n.text("Always")).tag(MenuBarItemStyle.capsule)
                     Text(L10n.text("None")).tag(MenuBarItemStyle.plain)
                 }
-                segmentedPicker(L10n.text("Spacing"), selection: $model.options.spacing) {
+                segmentedPicker(L10n.text("Spacing"), selection: settings.binding(\.options.spacing)) {
                     Text(L10n.text("Compact")).tag(MenuBarSpacing.compact)
                     Text(L10n.text("Comfortable")).tag(MenuBarSpacing.comfortable)
                 }
@@ -181,53 +210,53 @@ struct SettingsContent: View {
         settingsGroup(.metrics) {
             VStack(alignment: .leading, spacing: 12) {
                 if model.fiveHourAvailable != false {
-                    metricSettings(L10n.text("Show 5-hour quota"), isOn: $model.options.showFiveHour,
+                    metricSettings(L10n.text("Show 5-hour quota"), isOn: settings.binding(\.options.showFiveHour),
                                    detailsTitle: L10n.text("Quota display options")) {
                         quotaDisplaySettings
                     }
                     Divider()
                 }
-                metricSettings(L10n.text("Show 7-day quota"), isOn: $model.options.showWeekly,
+                metricSettings(L10n.text("Show 7-day quota"), isOn: settings.binding(\.options.showWeekly),
                                detailsTitle: L10n.text("Quota display options")) {
                     quotaDisplaySettings
                 }
                 Divider()
-                metricSettings(L10n.text("Show TPS"), isOn: $model.options.showTPS,
+                metricSettings(L10n.text("Show TPS"), isOn: settings.binding(\.options.showTPS),
                                detailsTitle: L10n.text("TPS display options")) {
-                    segmentedPicker(L10n.text("TPS layout"), selection: $model.options.tpsLayout) {
+                    segmentedPicker(L10n.text("TPS layout"), selection: settings.binding(\.options.tpsLayout)) {
                         Text(L10n.text("Inline")).tag(MenuBarTPSLayout.inline)
                         Text(L10n.text("Stacked")).tag(MenuBarTPSLayout.stacked)
                     }
-                    segmentedPicker(L10n.text("TPS decimals"), selection: $model.options.tpsDecimals) {
+                    segmentedPicker(L10n.text("TPS decimals"), selection: settings.binding(\.options.tpsDecimals)) {
                         Text("0").tag(0)
                         Text("1").tag(1)
                     }
-                    settingsToggle(L10n.text("Show TPS label"), isOn: $model.options.showTPSLabel)
-                    settingsToggle(L10n.text("Show TPS lightning icon"), isOn: $model.options.showTPSIcon)
+                    settingsToggle(L10n.text("Show TPS label"), isOn: settings.binding(\.options.showTPSLabel))
+                    settingsToggle(L10n.text("Show TPS lightning icon"), isOn: settings.binding(\.options.showTPSIcon))
                 }
                 Divider()
-                metricSettings(L10n.text("Show today's tokens"), isOn: $model.options.showTodayTokens,
+                metricSettings(L10n.text("Show today's tokens"), isOn: settings.binding(\.options.showTodayTokens),
                                detailsTitle: L10n.text("Today's tokens display options")) {
-                    settingsToggle(L10n.text("Show tok label"), isOn: $model.options.showTodayTokensLabel)
+                    settingsToggle(L10n.text("Show tok label"), isOn: settings.binding(\.options.showTodayTokensLabel))
                 }
                 Divider()
-                metricSettings(L10n.text("Show CPU usage"), isOn: $model.options.showCPU,
+                metricSettings(L10n.text("Show CPU usage"), isOn: settings.binding(\.options.showCPU),
                                detailsTitle: L10n.text("CPU display options")) {
-                    systemMetricDisplaySettings($model.options.cpuDisplay)
+                    systemMetricDisplaySettings(settings.binding(\.options.cpuDisplay))
                 }
                 Divider()
-                metricSettings(L10n.text("Show GPU usage"), isOn: $model.options.showGPU,
+                metricSettings(L10n.text("Show GPU usage"), isOn: settings.binding(\.options.showGPU),
                                detailsTitle: L10n.text("GPU display options")) {
-                    systemMetricDisplaySettings($model.options.gpuDisplay)
+                    systemMetricDisplaySettings(settings.binding(\.options.gpuDisplay))
                 }
                 Divider()
-                metricSettings(L10n.text("Show RAM usage"), isOn: $model.options.showRAM,
+                metricSettings(L10n.text("Show RAM usage"), isOn: settings.binding(\.options.showRAM),
                                detailsTitle: L10n.text("RAM display options")) {
-                    systemMetricDisplaySettings($model.options.ramDisplay)
+                    systemMetricDisplaySettings(settings.binding(\.options.ramDisplay))
                 }
                 Divider()
-                settingsToggle(L10n.text("Show upload speed"), isOn: $model.options.showNetworkUpload)
-                settingsToggle(L10n.text("Show download speed"), isOn: $model.options.showNetworkDownload)
+                settingsToggle(L10n.text("Show upload speed"), isOn: settings.binding(\.options.showNetworkUpload))
+                settingsToggle(L10n.text("Show download speed"), isOn: settings.binding(\.options.showNetworkDownload))
                 note(L10n.text("Network directions share one menu item: upload above, download below."))
             }
         }
@@ -263,7 +292,7 @@ struct SettingsContent: View {
     private var quotaDisplaySettings: some View {
         VStack(alignment: .leading, spacing: 12) {
             note(L10n.text("Applies to visible 5-hour and 7-day quota labels."))
-            menuPicker(L10n.text("Quota labels"), selection: $model.options.quotaLabelStyle) {
+            menuPicker(L10n.text("Quota labels"), selection: settings.binding(\.options.quotaLabelStyle)) {
                 Text("AI").tag(QuotaLabelStyle.ai)
                 Text("5h / 7d").tag(QuotaLabelStyle.window)
                 Text(L10n.text("Window icons")).tag(QuotaLabelStyle.icon)
@@ -277,14 +306,14 @@ struct SettingsContent: View {
                     set: { model.options.customQuotaLabel = DisplayOptions.sanitizeQuotaLabel($0) }))
                     .textFieldStyle(.roundedBorder)
             }
-            settingsToggle(L10n.text("Show percent sign"), isOn: $model.options.showPercentSign)
-            settingsToggle(L10n.text("Show reset countdown"), isOn: $model.options.showCountdown)
+            settingsToggle(L10n.text("Show percent sign"), isOn: settings.binding(\.options.showPercentSign))
+            settingsToggle(L10n.text("Show reset countdown"), isOn: settings.binding(\.options.showCountdown))
             if model.options.showCountdown {
-                segmentedPicker(L10n.text("Countdown"), selection: $model.options.countdownStyle) {
+                segmentedPicker(L10n.text("Countdown"), selection: settings.binding(\.options.countdownStyle)) {
                     Text("2h14m").tag(CountdownStyle.compact)
                     Text("02:14").tag(CountdownStyle.clock)
                 }
-                menuPicker(L10n.text("Countdown separator"), selection: $model.options.countdownSeparator) {
+                menuPicker(L10n.text("Countdown separator"), selection: settings.binding(\.options.countdownSeparator)) {
                     Text(L10n.text("Space")).tag(CountdownSeparator.space)
                     Text(L10n.text("Middle dot")).tag(CountdownSeparator.dot)
                     Text(L10n.text("Slash")).tag(CountdownSeparator.slash)
@@ -297,25 +326,25 @@ struct SettingsContent: View {
     private var refreshSettings: some View {
         settingsGroup(.refresh) {
             VStack(alignment: .leading, spacing: 12) {
-                settingsToggle(L10n.text("Automatic Refresh"), isOn: $model.autoRefresh)
+                settingsToggle(L10n.text("Automatic Refresh"), isOn: settings.binding(\.autoRefresh))
                 note(L10n.text("Also refreshes after wake or network reconnection. Nearby requests are merged and rate-limited."))
                 Divider()
-                menuPicker(L10n.text("Quota"), selection: $model.refreshOptions.quotaSeconds) {
+                menuPicker(L10n.text("Quota"), selection: settings.binding(\.refreshOptions.quotaSeconds)) {
                     Text(L10n.text("1 minute")).tag(60)
                     Text(L10n.text("3 minutes")).tag(180)
                     Text(L10n.text("5 minutes")).tag(300)
                     Text(L10n.text("10 minutes")).tag(600)
                     Text(L10n.text("15 minutes")).tag(900)
                 }
-                menuPicker(L10n.text("Local response logs"), selection: $model.refreshOptions.logSeconds) {
+                menuPicker(L10n.text("Local response logs"), selection: settings.binding(\.refreshOptions.logSeconds)) {
                     ForEach([1.0, 2, 5, 10, 30], id: \.self) { Text(L10n.text("\(Int($0)) seconds")).tag($0) }
                 }
-                menuPicker(L10n.text("Countdown display"), selection: $model.refreshOptions.displaySeconds) {
+                menuPicker(L10n.text("Countdown display"), selection: settings.binding(\.refreshOptions.displaySeconds)) {
                     Text(L10n.text("15 seconds")).tag(15)
                     Text(L10n.text("30 seconds")).tag(30)
                     Text(L10n.text("1 minute")).tag(60)
                 }
-                menuPicker(L10n.text("Account statistics"), selection: $model.refreshOptions.accountSeconds) {
+                menuPicker(L10n.text("Account statistics"), selection: settings.binding(\.refreshOptions.accountSeconds)) {
                     Text(L10n.text("5 minutes")).tag(300)
                     Text(L10n.text("15 minutes")).tag(900)
                     Text(L10n.text("30 minutes")).tag(1800)
@@ -329,12 +358,12 @@ struct SettingsContent: View {
     private var generalSettings: some View {
         settingsGroup(.general) {
             VStack(alignment: .leading, spacing: 12) {
-                menuPicker(L10n.text("Theme"), selection: $model.appearance) {
+                menuPicker(L10n.text("Theme"), selection: settings.binding(\.appearance)) {
                     Text(L10n.text("Follow System")).tag(AppAppearance.system)
                     Text(L10n.text("Light")).tag(AppAppearance.light)
                     Text(L10n.text("Dark")).tag(AppAppearance.dark)
                 }
-                menuPicker(L10n.text("Language"), selection: $model.language) {
+                menuPicker(L10n.text("Language"), selection: settings.binding(\.language)) {
                     Text(L10n.text("Follow System")).tag(AppLanguage.system)
                     Text("简体中文").tag(AppLanguage.simplifiedChinese)
                     Text("English").tag(AppLanguage.english)
@@ -424,14 +453,21 @@ struct SettingsContent: View {
     }
 }
 
-private final class SettingsNavigationState: ObservableObject {
-    @Published var selected: SettingsPane? = .general
+final class SettingsNavigationState: ObservableObject {
+    @Published fileprivate var selected: SettingsPane? = .general
 }
 
 struct SettingsWindowView: View {
-    @ObservedObject var model: AppModel
+    @StateObject private var settings: AppSettingsObservation
+    private var model: AppModel { settings.model }
     @ObservedObject var updates: AppUpdates
-    @StateObject private var navigation = SettingsNavigationState()
+    @StateObject private var navigation: SettingsNavigationState
+
+    init(model: AppModel, updates: AppUpdates, navigation: SettingsNavigationState? = nil) {
+        _settings = StateObject(wrappedValue: AppSettingsObservation(model: model))
+        _navigation = StateObject(wrappedValue: navigation ?? SettingsNavigationState())
+        self.updates = updates
+    }
 
     var body: some View {
         HStack(spacing: 0) {

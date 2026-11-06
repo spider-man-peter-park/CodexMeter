@@ -39,7 +39,11 @@ Menu bar widths use compact reservations based on each metric's format and selec
 
 CPU and RAM details include the top eight accessible processes. Process CPU usage uses 100% for one logical core and can exceed 100%; process memory uses physical footprint. Process lists refresh about every six seconds at the normal sampling cadence. RAM begins with two text rows for memory pressure and usage percentage; it has no pressure gauge or usage ring. RAM pressure comes from the system pressure level rather than a threshold on usage percentage. Available memory includes reclaimable cache. Memory quantities in rich details use explicit binary KiB/MiB/GiB units, while network rates keep decimal KB/MB units. GPU device names cover available Metal devices; unified-memory and recommended-working-set information describes the default Metal GPU, and utilization/renderer/tiler readings describe the busiest reporting accelerator. Unsupported fields remain unavailable. The two-minute usage histories stay in memory and clear on sleep or stop; no history is fabricated at startup.
 
+Process lists and Metal hardware descriptions are collected only while their matching detail module is open. Closing details releases process baselines and lists; reopening CPU details establishes a fresh baseline before the next process CPU ranking. Aggregate menu readings and the two-minute CPU/GPU/RAM histories retain their normal sampling cadence. History snapshots store only the aggregate values used by charts.
+
 Network details list the top eight active processes by combined upload/download rate, with separate directional columns. A local, unprivileged `nettop` capture compares two monotonic samples about one second apart and refreshes every few seconds. No connection endpoints, packet contents or DNS lookups are collected. Process counters cover non-loopback traffic; VPN forwarding can make their sums differ from physical-interface totals. New/exited processes, counter resets and unsuccessful captures do not invent traffic. Unsupported or denied statistics stay unavailable; a successful empty sample reports no active processes. These readings are held in memory only.
+
+Network process captures run only while Network details are open. Leaving that module cancels the capture and clears its cached process list. Closing a popover or Settings releases its hidden SwiftUI content; reopening rebuilds that content while preserving preferences and Settings navigation.
 
 Quota items never append `*` for cached data or reserve space for that marker. Cache/stale warnings remain in hover help, accessible descriptions and details. Quota percentages and countdowns use the same selected font and size. Compact 7-day width is reserved from `100%` plus `20h20m`, together with the chosen label/icon, separator and normal insets. Clock-style countdowns retain a reservation appropriate to that selected format. The countdown ends at the trailing inset in a fixed reservation, preventing short day/hour strings from leaving a long empty tail. The dot separator is rendered separately, centered horizontally between the visible percentage and countdown and vertically with their glyphs. Countdown formats, separator choices and the actual readings remain unchanged.
 
@@ -172,6 +176,21 @@ CODEXMETER_MEMORY_SOAK_REPORT_DIRECTORY=/private/tmp/codexmeter-memory-soak \
 ```
 
 The test records physical footprint in `samples.jsonl` and fails if the final footprint exceeds the post-warmup reading by more than 32 MiB. Each update advances the synthetic sampling clock by two seconds; this accelerates chart refreshes rather than measuring hours of elapsed app use. Set `CODEXMETER_MEMORY_SOAK_SECTION` to `cpu`, `gpu`, or `ram` (the default) to exercise each shared chart. Optional `CODEXMETER_MEMORY_SOAK_WARMUP_HOLD_SECONDS` and `CODEXMETER_MEMORY_SOAK_HOLD_SECONDS` keep the window alive for external `heap`/`vmmap` summaries; the report directory's `pid` file identifies the test process. Use a fresh report directory for each run.
+
+### CPU regression profiles
+
+Two opt-in tests measure process CPU time using isolated data and preferences. They do not start account queries or change login settings. Run each separately so other tests do not contribute to its CPU counters:
+
+```bash
+CODEXMETER_LOG_BENCHMARK=1 \
+./scripts/test.sh --no-parallel --filter LogMonitorPerformanceTests
+
+CODEXMETER_SETTINGS_PERF_ITERATIONS=300 \
+CODEXMETER_SETTINGS_PERF_REPORT_DIRECTORY=/private/tmp/codexmeter-settings-cpu \
+./scripts/test.sh --no-parallel --filter profileSettingsDuringUnrelatedMetricRefreshes
+```
+
+The log profile performs 30 unchanged polls over 1,000 synthetic session files and prints CPU and elapsed seconds. The settings profile opens an isolated window containing the actual inline Settings controls, then measures idle, synthetic metric refreshes and idle afterward. Its refresh cadence is accelerated; its percentages describe the test workload rather than normal background app usage. JSON measurements are saved in the requested report directory. Neither profile is enabled in the ordinary test suite.
 
 ## Data and refresh behavior
 

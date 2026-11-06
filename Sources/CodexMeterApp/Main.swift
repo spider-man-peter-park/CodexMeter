@@ -5,9 +5,11 @@ import ServiceManagement
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
     private var installedLanguage: AppLanguage?
     private var statusItems: [MenuBarMetric: NSStatusItem] = [:]
+    private let statusItemRenderCache = StatusItemRenderCache()
+    private var statusUpdateScheduled = false
     private var anchorMetric: MenuBarMetric?
     private var contextMenuMetric: MenuBarMetric?
     private let popover = NSPopover()
@@ -16,7 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var settingsController: NSWindowController?
     private var detailPreviewController: NSWindowController?
     private var detailPreviewSizeObservation: NSKeyValueObservation?
-    private var popoverController: NSHostingController<PopoverView>?
+    private let settingsNavigation = SettingsNavigationState()
+    private lazy var popoverContent = PopoverContentHost(popover: popover, model: model, updates: updates,
+        onOpenSettings: { [weak self] in self?.showSettings(nil) },
+        onOpenAbout: { [weak self] in self?.showAbout(nil) })
     private var appearanceObservation: NSKeyValueObservation?
     private var outsideMouseMonitor: Any?
     private var pendingPopoverWork: DispatchWorkItem?
@@ -35,13 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         popover.animates = true
-        let controller = NSHostingController(rootView: PopoverView(model: model, updates: updates,
-            onOpenSettings: { [weak self] in self?.showSettings(nil) },
-            onOpenAbout: { [weak self] in self?.showAbout(nil) }))
-        popoverController = controller
-        controller.sizingOptions = [.preferredContentSize]
-        popover.contentViewController = controller
-        model.changed = { [weak self] in self?.updateStatusItems() }
+        model.changed = { [weak self] in self?.scheduleStatusItemUpdate() }
         appearanceObservation = NSApplication.shared.observe(\.effectiveAppearance) { [weak self] _, _ in
             Task { @MainActor in
                 self?.popover.appearance = NSApplication.shared.effectiveAppearance
@@ -92,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         controller.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: controller)
         window.title = "CodexMeter · Detail preview"
+        window.delegate = self
         window.styleMask = [.titled, .closable]
         window.setContentSize(NSSize(width: 480, height: 400))
         detailPreviewSizeObservation = controller.observe(\.preferredContentSize, options: [.initial, .new]) { [weak window] controller, _ in
@@ -112,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.activate(ignoringOtherApps: true)
         detailPreviewController?.showWindow(nil)
         window.makeKeyAndOrderFront(nil)
+        model.setDetailPresented(true, on: .preview)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -141,9 +142,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if !relocatingPopover { finishPopoverInteraction() }
     }
 
+    func popoverDidClose(_ notification: Notification) {
+        guard !relocatingPopover, !popoverRequested, !popover.isShown else { return }
+        model.setDetailPresented(false, on: .popover)
+        popoverContent.releaseIfHidden()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        if window === detailPreviewController?.window { model.setDetailPresented(false, on: .preview) }
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, !window.isVisible else { return }
+            if window === self.settingsController?.window {
+                // Keep window geometry and navigation state, but release the hidden SwiftUI graph.
+                window.contentViewController = nil
+                window.contentView = NSView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
+            } else if window === self.detailPreviewController?.window {
+                self.detailPreviewSizeObservation = nil
+                window.contentViewController = nil
+                window.contentView = NSView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
+                self.detailPreviewController = nil
+            }
+        }
+    }
+
     private var firstButton: NSStatusBarButton? {
         [MenuBarMetric.tps, .todayTokens, .weekly, .fiveHour, .cpu, .gpu, .ram, .network, .fallback]
             .compactMap { statusItems[$0]?.button }.first
+    }
+
+    private func scheduleStatusItemUpdate() {
+        guard !statusUpdateScheduled else { return }
+        statusUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.statusUpdateScheduled = false
+            self.updateStatusItems()
+        }
     }
 
     private func updateStatusItems() {
@@ -156,6 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             options: model.options, todayUsage: model.localDayUsage, now: model.now, stale: model.quotaWarning != nil,
             systemMetrics: model.systemMetrics, systemNow: model.systemMetricsNow)
         let needed = Set(descriptors.map(\.metric))
+        statusItemRenderCache.retainMetrics(needed)
         let reanchor = (popover.isShown || popoverRequested)
             && (anchorMetric.map { !needed.contains($0) } ?? false)
         if reanchor { closePopoverImmediately(preservingIntent: true) }
@@ -184,12 +220,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             default: window = nil
             }
             if let item = statusItems[descriptor.metric] {
-                StatusItemAppearance.apply(descriptor, to: item, options: model.options, window: window,
-                                           isActive: (popover.isShown && anchorMetric == descriptor.metric)
-                                               || contextMenuMetric == descriptor.metric)
+                let result = statusItemRenderCache.render(descriptor, options: model.options,
+                    remaining: window?.remainingPercent, appearance: button.effectiveAppearance,
+                    isActive: (popover.isShown && anchorMetric == descriptor.metric)
+                        || contextMenuMetric == descriptor.metric)
+                if result.changed { StatusItemAppearance.apply(result.image, to: item) }
             }
-            button.setAccessibilityLabel(descriptor.accessibilityLabel)
-            button.setAccessibilityValue(descriptor.title)
             var tooltip = descriptor.accessibilityLabel + L10n.text(" · Click for details")
             if descriptor.metric == .tps {
                 if let sample = model.sample { tooltip += L10n.text("\nResponse completed: \(sample.completedAt.formatted(.dateTime.locale(L10n.locale)))") }
@@ -207,7 +243,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     tooltip += L10n.text("\nCached quota; may be outdated")
                 }
             }
-            button.toolTip = tooltip
+            StatusItemMetadata.apply(label: descriptor.accessibilityLabel, value: descriptor.title,
+                tooltip: tooltip, to: button)
         }
         if reanchor {
             schedulePopover(after: 0.2)
@@ -271,6 +308,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popoverRequested = false
         anchorMetric = nil
         cancelScheduledPopover()
+        model.setDetailPresented(false, on: .popover)
+        if !popover.isShown { popoverContent.releaseIfHidden() }
         if let outsideMouseMonitor {
             NSEvent.removeMonitor(outsideMouseMonitor)
             self.outsideMouseMonitor = nil
@@ -301,12 +340,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.selectedQuotaMetric = [.fiveHour, .weekly].contains(metric) ? metric : nil
         monitorOutsideClicks()
         let screenHeight = button.window?.screen?.visibleFrame.height ?? 800
-        popoverController?.rootView.panelHeight = max(180, screenHeight - 60)
+        popoverContent.prepare(panelHeight: max(180, screenHeight - 60))
         // Match app appearance rather than the menu bar anchor's wallpaper-dependent appearance.
         popover.appearance = NSApplication.shared.effectiveAppearance
         // A status-item popover must not raise the app's background settings window.
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+        model.setDetailPresented(popover.isShown, on: .popover)
+        if !popover.isShown { finishPopoverInteraction() }
         updateStatusItems()
     }
 
@@ -355,9 +396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         dismissPopover()
         model.refreshLoginStatus()
         if settingsController == nil {
-            let controller = NSHostingController(rootView: SettingsWindowView(model: model, updates: updates))
+            let controller = NSHostingController(rootView: SettingsWindowView(model: model, updates: updates,
+                navigation: settingsNavigation))
             let window = NSWindow(contentViewController: controller)
             window.title = L10n.text("CodexMeter Settings")
+            window.delegate = self
             window.styleMask = [.titled, .closable, .resizable]
             let height = min(600, max(280, (NSScreen.main?.visibleFrame.height ?? 800) - 100))
             window.setContentSize(NSSize(width: 740, height: height))
@@ -369,6 +412,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 window.setContentSize(NSSize(width: 740, height: height))
             }
             settingsController = NSWindowController(window: window)
+        }
+        if let window = settingsController?.window, window.contentViewController == nil {
+            window.contentViewController = NSHostingController(rootView: SettingsWindowView(model: model,
+                updates: updates, navigation: settingsNavigation))
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsController?.showWindow(nil)
@@ -391,6 +438,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc private func openProject(_ sender: Any?) { dismissPopover(); NSWorkspace.shared.open(AppMetadata.projectURL) }
     @objc private func reportIssue(_ sender: Any?) { dismissPopover(); NSWorkspace.shared.open(AppMetadata.issuesURL) }
     @objc private func quit(_ sender: Any?) { NSApp.terminate(sender) }
+}
+
+@MainActor
+enum StatusItemMetadata {
+    static func apply(label: String, value: String, tooltip: String, to button: NSButton) {
+        if button.accessibilityLabel() != label { button.setAccessibilityLabel(label) }
+        if button.accessibilityValue() as? String != value { button.setAccessibilityValue(value) }
+        if button.toolTip != tooltip { button.toolTip = tooltip }
+    }
 }
 
 @main

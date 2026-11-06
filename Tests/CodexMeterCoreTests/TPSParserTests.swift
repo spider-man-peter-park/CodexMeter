@@ -112,6 +112,18 @@ struct TPSParserTests {
         #expect((next.count) == (1))
     }
 
+    @Test func excludedSourceRemainsExcludedAcrossMalformedPayloadsAndReplayedMetadata() {
+        for metadata in [meta(["source": ["subagent": "review"]]), meta(["originator": "Codex CLI", "source": "cli"])] {
+            var parser = SessionParser()
+            _ = parser.consume(metadata)
+            let source = parser.source
+            #expect(feed(&parser, [Data("{bad json}".utf8), meta()] + start() + [generated(6), modern(6.1)]).isEmpty)
+            #expect(parser.source == source)
+            #expect(parser.latestResponseAt == nil)
+            #expect(!parser.hasUnmeasurableResponse)
+        }
+    }
+
     @Test func testLegacyWithoutTaskStartedHasNoReliableTiming() {
         var parser = SessionParser()
         #expect(feed(&parser, [meta(), row(1, "turn_context", ["model": "test-model"]),

@@ -102,6 +102,28 @@ import Testing
         #expect(result.latestSample?.id == "response-3")
     }
 
+    @Test func repeatedCheckpointSavesKeepNewlyAppendedUsageAcrossRestart() async throws {
+        let home = try home(); defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.appendingPathComponent("sessions/main.jsonl")
+        var data = try metadata("main")
+        data.append(try response("first"))
+        try data.write(to: path)
+        let cache = home.appendingPathComponent("cache.json")
+        let monitor = LogMonitor(home: home, cacheURL: cache)
+        #expect((await monitor.poll(now: base.addingTimeInterval(1000), calendar: calendar)).todayUsage?.total == 1100)
+        await monitor.flush()
+        let handle = try FileHandle(forWritingTo: path)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: response("second", index: 1))
+        try handle.close()
+        #expect((await monitor.poll(now: base.addingTimeInterval(1000), calendar: calendar)).todayUsage?.total == 2200)
+        await monitor.flush()
+        let restored = LogMonitor(home: home, cacheURL: cache)
+        let result = await restored.poll(now: base.addingTimeInterval(1000), calendar: calendar)
+        #expect(result.todayUsage?.total == 2200 && result.todayUsage?.responses == 2)
+        #expect(result.recentSamples.count == 2)
+    }
+
     @Test func midnightDoesNotCarryYesterdaysTotalAndMissingRootsAreUnavailable() async throws {
         let home = try home(); defer { try? FileManager.default.removeItem(at: home) }
         var data = try metadata("main"); data.append(try response("first"))

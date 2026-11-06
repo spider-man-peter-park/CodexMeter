@@ -102,7 +102,12 @@ struct NettopCSVParser {
     }
 }
 
-private final class NettopReader: @unchecked Sendable {
+protocol NetworkProcessReading: Sendable {
+    func collect() -> NetworkProcessSnapshot?
+    func cancel()
+}
+
+private final class NettopReader: NetworkProcessReading, @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
     private var cancelled = false
@@ -157,8 +162,8 @@ private final class NettopReader: @unchecked Sendable {
         var parser = NettopCSVParser()
         var pending = Data()
         var bytes = 0
+        var buffer = [UInt8](repeating: 0, count: 65_536)
         while !isCancelled {
-            var buffer = [UInt8](repeating: 0, count: 65_536)
             let count = buffer.withUnsafeMutableBytes { Darwin.read(master, $0.baseAddress, $0.count) }
             if count < 0, errno == EINTR { continue }
             // A pseudo-terminal reports EIO when the child closes its final slave descriptor.
@@ -183,14 +188,25 @@ private final class NettopReader: @unchecked Sendable {
 actor NetworkProcessMonitor {
     private var current: NetworkProcessSnapshot?
     private var task: Task<Void, Never>?
-    private var reader: NettopReader?
+    private var reader: (any NetworkProcessReading)?
     private var lastStarted: TimeInterval?
     private var generation = 0
+    private let makeReader: @Sendable () -> any NetworkProcessReading
 
-    func snapshot() -> NetworkProcessSnapshot? {
+    init() { makeReader = { NettopReader() } }
+
+    init(makeReader: @escaping @Sendable () -> any NetworkProcessReading) {
+        self.makeReader = makeReader
+    }
+
+    func snapshot(enabled: Bool = true) -> NetworkProcessSnapshot? {
+        guard enabled else {
+            if task != nil || current != nil || lastStarted != nil { reset() }
+            return nil
+        }
         let time = ProcessInfo.processInfo.systemUptime
         if task == nil, lastStarted == nil || time - (lastStarted ?? 0) >= 4 {
-            let reader = NettopReader()
+            let reader = makeReader()
             self.reader = reader
             lastStarted = time
             let generation = generation

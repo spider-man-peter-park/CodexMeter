@@ -56,6 +56,8 @@ public struct SessionParser: Codable, Sendable {
     /// The caller supplies one complete JSONL line; incomplete tails belong in its byte buffer.
     public mutating func consume(_ line: Data) -> TPSSample? {
         guard !line.isEmpty else { return nil }
+        // The first metadata record permanently classifies these files; their later payloads cannot yield TPS.
+        guard source != .excluded && source != .other else { return nil }
         guard let row = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let type = row["type"] as? String,
               let payload = row["payload"] as? [String: Any] else {

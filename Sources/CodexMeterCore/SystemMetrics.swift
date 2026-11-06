@@ -22,6 +22,20 @@ public struct SystemProcessUsage: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct SystemMetricsDetailDemand: Equatable, Sendable {
+    public var processes: Bool
+    public var networkProcesses: Bool
+    public var gpuHardware: Bool
+
+    public init(processes: Bool = false, networkProcesses: Bool = false, gpuHardware: Bool = false) {
+        self.processes = processes
+        self.networkProcesses = networkProcesses
+        self.gpuHardware = gpuHardware
+    }
+
+    public static let all = Self(processes: true, networkProcesses: true, gpuHardware: true)
+}
+
 public struct SystemMetricsSnapshot: Equatable, Sendable {
     public let sampledAt: Date
     public let cpuUsagePercent: Double?
@@ -231,7 +245,7 @@ private struct SystemGPUValues {
     let tiler: Double?
 }
 
-private struct SystemGPUHardware {
+struct SystemGPUHardware: Sendable {
     let names: [String]
     let unifiedMemory: Bool?
     let recommendedWorkingSet: UInt64?
@@ -243,6 +257,41 @@ private struct SystemGPUHardware {
         let names = Array(Set(devices.map(\.name))).sorted()
         return Self(names: names, unifiedMemory: primary?.hasUnifiedMemory,
                     recommendedWorkingSet: primary.map(\.recommendedMaxWorkingSetSize))
+    }
+}
+
+struct SystemMetricsDetailState: Sendable {
+    private var processDeltas = SystemProcessDeltas()
+    private var lastProcessScan: TimeInterval?
+    private(set) var processUsage: (cpu: [SystemProcessUsage], memory: [SystemProcessUsage]) = ([], [])
+    private(set) var gpuHardware: SystemGPUHardware?
+    private var gpuHardwareUpdatedAt: TimeInterval?
+
+    mutating func sample(demand: SystemMetricsDetailDemand, uptime: TimeInterval,
+                         readProcesses: () -> [SystemProcessCounter]?,
+                         readProcessTimebase: () -> SystemProcessTimebase?,
+                         readGPUHardware: () -> SystemGPUHardware) {
+        if demand.processes {
+            if lastProcessScan == nil || uptime < (lastProcessScan ?? 0) || uptime - (lastProcessScan ?? 0) >= 5 {
+                processUsage = processDeltas.consume(readProcesses(), uptime: uptime, timebase: readProcessTimebase())
+                lastProcessScan = uptime
+            }
+        } else {
+            // Closing the detail releases every process counter and requires a new CPU baseline on return.
+            processDeltas = SystemProcessDeltas()
+            lastProcessScan = nil
+            processUsage = ([], [])
+        }
+
+        if demand.gpuHardware {
+            if gpuHardware == nil || uptime < (gpuHardwareUpdatedAt ?? 0) || uptime - (gpuHardwareUpdatedAt ?? 0) >= 30 {
+                gpuHardware = readGPUHardware()
+                gpuHardwareUpdatedAt = uptime
+            }
+        } else {
+            gpuHardware = nil
+            gpuHardwareUpdatedAt = nil
+        }
     }
 }
 
@@ -299,43 +348,27 @@ enum SystemMetricValues {
 public actor SystemMetricsMonitor {
     private let networkProcessMonitor = NetworkProcessMonitor()
     private var deltas = SystemMetricDeltas()
-    private var processDeltas = SystemProcessDeltas()
-    private var lastProcessScan: TimeInterval?
-    private var processUsage: (cpu: [SystemProcessUsage], memory: [SystemProcessUsage]) = ([], [])
-    private var gpuHardware: SystemGPUHardware?
-    private var gpuHardwareUpdatedAt: TimeInterval?
+    private var details = SystemMetricsDetailState()
 
     public init() {}
 
     public func reset() async {
         await networkProcessMonitor.reset()
         deltas = SystemMetricDeltas()
-        processDeltas = SystemProcessDeltas()
-        lastProcessScan = nil
-        processUsage = ([], [])
-        gpuHardware = nil
-        gpuHardwareUpdatedAt = nil
+        details = SystemMetricsDetailState()
     }
 
-    public func sample() async -> SystemMetricsSnapshot {
-        let networkProcesses = await networkProcessMonitor.snapshot()
+    public func sample(demand: SystemMetricsDetailDemand = .all) async -> SystemMetricsSnapshot {
+        let networkProcesses = await networkProcessMonitor.snapshot(enabled: demand.networkProcesses)
         let cpu = Self.readCPU()
         let network = Self.readNetwork()
         let rates = deltas.consume(cpu: cpu, network: network, uptime: ProcessInfo.processInfo.systemUptime)
         let total = ProcessInfo.processInfo.physicalMemory
         let memory = Self.readMemory(total: total)
         let gpu = Self.readGPU()
-        let hardwareUptime = ProcessInfo.processInfo.systemUptime
-        if gpuHardware == nil || hardwareUptime - (gpuHardwareUpdatedAt ?? 0) >= 30 {
-            gpuHardware = SystemGPUHardware.read()
-            gpuHardwareUpdatedAt = hardwareUptime
-        }
-        let uptime = ProcessInfo.processInfo.systemUptime
-        if lastProcessScan == nil || uptime - (lastProcessScan ?? 0) >= 5 {
-            processUsage = processDeltas.consume(Self.readProcesses(), uptime: ProcessInfo.processInfo.systemUptime,
-                                                timebase: Self.readProcessTimebase())
-            lastProcessScan = ProcessInfo.processInfo.systemUptime
-        }
+        details.sample(demand: demand, uptime: ProcessInfo.processInfo.systemUptime,
+            readProcesses: Self.readProcesses, readProcessTimebase: Self.readProcessTimebase,
+            readGPUHardware: SystemGPUHardware.read)
         return SystemMetricsSnapshot(cpuUsagePercent: rates.cpu, gpuUsagePercent: gpu.usage,
             memoryUsedBytes: memory?.used, memoryTotalBytes: total > 0 ? total : nil,
             networkUploadBytesPerSecond: rates.upload, networkDownloadBytesPerSecond: rates.download,
@@ -345,9 +378,9 @@ public actor SystemMetricsMonitor {
             cpuUserPercent: rates.user, cpuSystemPercent: rates.system, cpuIdlePercent: rates.idle,
             physicalCoreCount: Self.readInt("hw.physicalcpu").map(Int.init),
             logicalCoreCount: Self.readInt("hw.logicalcpu").map(Int.init), loadAverages: Self.readLoadAverages(),
-            cpuTopProcesses: processUsage.cpu, memoryTopProcesses: processUsage.memory,
-            gpuDeviceNames: gpuHardware?.names ?? [], gpuHasUnifiedMemory: gpuHardware?.unifiedMemory,
-            gpuRecommendedWorkingSetBytes: gpuHardware?.recommendedWorkingSet,
+            cpuTopProcesses: details.processUsage.cpu, memoryTopProcesses: details.processUsage.memory,
+            gpuDeviceNames: details.gpuHardware?.names ?? [], gpuHasUnifiedMemory: details.gpuHardware?.unifiedMemory,
+            gpuRecommendedWorkingSetBytes: details.gpuHardware?.recommendedWorkingSet,
             gpuRendererUsagePercent: gpu.renderer, gpuTilerUsagePercent: gpu.tiler,
             networkTopProcesses: networkProcesses?.processes ?? [], networkProcessesUpdatedAt: networkProcesses?.updatedAt)
     }

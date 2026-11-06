@@ -9,25 +9,36 @@ enum StatusItemAppearance {
         guard let button = item.button else { return }
         let image = makeImage(descriptor, options: options, remaining: window?.remainingPercent,
                               appearance: button.effectiveAppearance, isActive: isActive)
+        apply(image, to: item)
+    }
+
+    static func apply(_ image: NSImage, to item: NSStatusItem) {
+        guard let button = item.button else { return }
         // The system owns the selected background; active images contain template glyphs only.
-        button.attributedTitle = NSAttributedString(string: "")
-        button.title = ""
-        button.contentTintColor = nil
+        if button.attributedTitle.length != 0 { button.attributedTitle = NSAttributedString(string: "") }
+        if !button.title.isEmpty { button.title = "" }
+        if button.contentTintColor != nil { button.contentTintColor = nil }
         button.image = image
-        button.imagePosition = .imageOnly
-        button.imageScaling = .scaleProportionallyDown
-        button.appearsDisabled = false
-        button.alphaValue = 1
-        item.length = image.size.width
+        if button.imagePosition != .imageOnly { button.imagePosition = .imageOnly }
+        if button.imageScaling != .scaleProportionallyDown { button.imageScaling = .scaleProportionallyDown }
+        if button.appearsDisabled { button.appearsDisabled = false }
+        if button.alphaValue != 1 { button.alphaValue = 1 }
+        if item.length != image.size.width { item.length = image.size.width }
     }
 
     static func makeImage(_ descriptor: MenuBarItem, options: DisplayOptions,
-                          remaining: Double?, appearance: NSAppearance, isActive: Bool = false) -> NSImage {
-        // Reserve geometry from the metric's format, never from its latest reading or largest value seen.
-        let capacity = capacityDescriptor(for: descriptor, options: options)
-        let size = renderImage(capacity, options: options, remaining: nil, appearance: appearance).size
+                          remaining: Double?, appearance: NSAppearance, isActive: Bool = false,
+                          reservedSize: NSSize? = nil) -> NSImage {
+        let size = reservedSize ?? capacitySize(for: descriptor, options: options, appearance: appearance)
         return renderImage(descriptor, options: options, remaining: remaining, appearance: appearance,
                            isActive: isActive, reservedSize: size)
+    }
+
+    static func capacitySize(for descriptor: MenuBarItem, options: DisplayOptions,
+                             appearance: NSAppearance) -> NSSize {
+        // Reserve geometry from the metric's format, never from its latest reading or largest value seen.
+        let capacity = capacityDescriptor(for: descriptor, options: options)
+        return renderImage(capacity, options: options, remaining: nil, appearance: appearance).size
     }
 
     static func capacityDescriptor(for descriptor: MenuBarItem, options: DisplayOptions) -> MenuBarItem {
@@ -556,5 +567,102 @@ enum StatusItemAppearance {
         case .teal: return NSColor(srgbRed: 0.02, green: 0.35, blue: 0.36, alpha: 1)
         case .purple: return NSColor(srgbRed: 0.38, green: 0.20, blue: 0.65, alpha: 1)
         }
+    }
+}
+
+@MainActor
+final class StatusItemRenderCache {
+    struct Result {
+        let image: NSImage
+        let changed: Bool
+    }
+
+    private struct Appearance: Equatable {
+        let name: String
+        let colorScheme: String?
+
+        init(_ appearance: NSAppearance) {
+            name = appearance.name.rawValue
+            colorScheme = appearance.bestMatch(from: [.aqua, .darkAqua])?.rawValue
+        }
+    }
+
+    private struct RenderState: Equatable {
+        let descriptor: MenuBarItem
+        let options: DisplayOptions
+        let remaining: Double?
+        let appearance: Appearance
+        let isActive: Bool
+    }
+
+    private struct CapacityState: Equatable {
+        let options: DisplayOptions
+        let appearance: Appearance
+        let symbolName: String?
+        let usesGPTLogo: Bool
+        let hasTPSValue: Bool
+        let hasSystemValue: Bool
+        let systemLabel: String?
+        let hasUploadValue: Bool
+        let hasDownloadValue: Bool
+        let hasQuotaPrimary: Bool
+
+        init(_ descriptor: MenuBarItem, options: DisplayOptions, appearance: Appearance) {
+            self.options = options
+            self.appearance = appearance
+            symbolName = descriptor.symbolName
+            usesGPTLogo = descriptor.usesGPTLogo
+            hasTPSValue = descriptor.tpsValue != nil
+            hasSystemValue = descriptor.systemValue != nil
+            systemLabel = descriptor.systemLabel
+            hasUploadValue = descriptor.networkUploadValue != nil
+            hasDownloadValue = descriptor.networkDownloadValue != nil
+            hasQuotaPrimary = descriptor.quotaPrimary != nil
+        }
+    }
+
+    private var images: [MenuBarMetric: (state: RenderState, image: NSImage)] = [:]
+    private var capacities: [MenuBarMetric: (state: CapacityState, size: NSSize)] = [:]
+
+    var imageCount: Int { images.count }
+    var capacityCount: Int { capacities.count }
+
+    func retainMetrics(_ metrics: Set<MenuBarMetric>) {
+        guard images.keys.contains(where: { !metrics.contains($0) }) else { return }
+        images = images.filter { metrics.contains($0.key) }
+        capacities = capacities.filter { metrics.contains($0.key) }
+    }
+
+    func render(_ descriptor: MenuBarItem, options: DisplayOptions, remaining: Double?,
+                appearance: NSAppearance, isActive: Bool = false) -> Result {
+        let effectiveAppearance = Appearance(appearance)
+        // Accessibility warnings and timestamps do not change a metric's pixels.
+        let visualDescriptor = MenuBarItem(metric: descriptor.metric, title: descriptor.title, accessibilityLabel: "",
+            symbolName: descriptor.symbolName, usesGPTLogo: descriptor.usesGPTLogo, tpsValue: descriptor.tpsValue,
+            systemValue: descriptor.systemValue, systemLabel: descriptor.systemLabel,
+            networkUploadValue: descriptor.networkUploadValue, networkDownloadValue: descriptor.networkDownloadValue,
+            quotaPrimary: descriptor.quotaPrimary, quotaCountdown: descriptor.quotaCountdown)
+        let state = RenderState(descriptor: visualDescriptor, options: options, remaining: remaining,
+            appearance: effectiveAppearance, isActive: isActive)
+        if let cached = images[descriptor.metric], cached.state == state {
+            if cached.image.accessibilityDescription != descriptor.accessibilityLabel {
+                cached.image.accessibilityDescription = descriptor.accessibilityLabel
+            }
+            return Result(image: cached.image, changed: false)
+        }
+
+        let capacityState = CapacityState(descriptor, options: options, appearance: effectiveAppearance)
+        let size: NSSize
+        if let cached = capacities[descriptor.metric], cached.state == capacityState {
+            size = cached.size
+        } else {
+            size = StatusItemAppearance.capacitySize(for: descriptor, options: options, appearance: appearance)
+            capacities[descriptor.metric] = (capacityState, size)
+        }
+        let image = StatusItemAppearance.makeImage(descriptor, options: options, remaining: remaining,
+            appearance: appearance, isActive: isActive, reservedSize: size)
+        // Each metric retains only its current pixels and format, never a history of readings.
+        images[descriptor.metric] = (state, image)
+        return Result(image: image, changed: true)
     }
 }

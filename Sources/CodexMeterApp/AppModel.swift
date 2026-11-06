@@ -6,6 +6,8 @@ import SwiftUI
 
 @MainActor
 final class AppModel: ObservableObject {
+    enum DetailSurface: Hashable { case popover, preview }
+
     @Published var quota: QuotaSnapshot? {
         didSet {
             store(quota, forKey: quotaCacheKey)
@@ -28,7 +30,9 @@ final class AppModel: ObservableObject {
     @Published var sample: TPSSample?
     @Published private(set) var systemMetrics: SystemMetricsSnapshot?
     @Published private(set) var systemMetricsHistory: [SystemMetricsSnapshot] = []
-    @Published var selectedDetailSection: DetailSection = .quota
+    @Published var selectedDetailSection: DetailSection = .quota {
+        didSet { if selectedDetailSection != oldValue { reconcileSystemDetailDemand() } }
+    }
     @Published var selectedQuotaMetric: MenuBarMetric?
     @Published private(set) var systemMetricsNow = Date()
     var currentSystemMetrics: SystemMetricsSnapshot? { systemMetrics?.fresh(at: systemMetricsNow) }
@@ -45,11 +49,12 @@ final class AppModel: ObservableObject {
         didSet {
             if fiveHourAvailable == false && options.showFiveHour { options.showFiveHour = false }
             saveDisplayOptions()
+            reconcileSystemDetailDemand()
             changed?()
         }
     }
     @Published var detailLayout: DetailLayout {
-        didSet { store(detailLayout, forKey: "detailLayout"); changed?() }
+        didSet { store(detailLayout, forKey: "detailLayout"); reconcileSystemDetailDemand(); changed?() }
     }
     @Published var refreshOptions: RefreshOptions {
         didSet {
@@ -87,6 +92,8 @@ final class AppModel: ObservableObject {
     private var logTask: Task<Void, Never>?
     private var systemMetricsTask: Task<Void, Never>?
     private var systemMetricsGeneration = 0
+    private var visibleDetailSurfaces: Set<DetailSurface> = []
+    private var requestedDetailDemand = SystemMetricsDetailDemand()
     private var polling = false
     private var started = false
     private var sleeping = false
@@ -245,14 +252,10 @@ final class AppModel: ObservableObject {
         }
         // Local hardware sampling is independent of Codex account refresh intervals.
         timer(every: 2) { [weak self] in
-            guard let self else { return }
-            self.systemMetricsNow = Date()
-            self.systemMetricsHistory.removeAll {
-                let age = self.systemMetricsNow.timeIntervalSince($0.sampledAt)
-                return age < 0 || age > 120
-            }
+            guard let self, !self.sleeping, self.needsSystemMetrics else { return }
+            let time = Date()
+            self.expireSystemMetrics(at: time)
             self.pollSystemMetrics()
-            self.changed?()
         }
     }
 
@@ -265,9 +268,30 @@ final class AppModel: ObservableObject {
         timers.append(timer)
     }
 
-    private var needsSystemMetrics: Bool {
+    var needsSystemMetrics: Bool {
         options.showCPU || options.showGPU || options.showRAM || options.showNetworkUpload || options.showNetworkDownload
-            || detailLayout.visibleSections.contains { [.cpu, .gpu, .ram, .network].contains($0) }
+            || (!visibleDetailSurfaces.isEmpty && [.cpu, .gpu, .ram, .network].contains(selectedDetailSection))
+    }
+
+    var systemDetailDemand: SystemMetricsDetailDemand {
+        guard !visibleDetailSurfaces.isEmpty else { return SystemMetricsDetailDemand() }
+        return SystemMetricsDetailDemand(processes: [.cpu, .ram].contains(selectedDetailSection),
+            networkProcesses: selectedDetailSection == .network, gpuHardware: selectedDetailSection == .gpu)
+    }
+
+    func setDetailPresented(_ presented: Bool, on surface: DetailSurface) {
+        if presented { visibleDetailSurfaces.insert(surface) }
+        else { visibleDetailSurfaces.remove(surface) }
+        reconcileSystemDetailDemand()
+    }
+
+    private func reconcileSystemDetailDemand() {
+        let next = systemDetailDemand
+        let changed = next != requestedDetailDemand
+        requestedDetailDemand = next
+        guard started, !sleeping else { return }
+        guard needsSystemMetrics else { cancelSystemMetrics(); return }
+        if changed || systemMetrics == nil { pollSystemMetrics() }
     }
 
     private func pollSystemMetrics(reset: Bool = false) {
@@ -277,30 +301,69 @@ final class AppModel: ObservableObject {
             return
         }
         let generation = systemMetricsGeneration
+        let demand = systemDetailDemand
         let shouldReset = reset || systemMetrics == nil
         systemMetricsTask = Task { [weak self] in
             guard let self else { return }
             if shouldReset { await self.systemMonitor.reset() }
-            let snapshot = await self.systemMonitor.sample()
+            let snapshot = await self.systemMonitor.sample(demand: demand)
             guard !Task.isCancelled, generation == self.systemMetricsGeneration, self.started, !self.sleeping else { return }
-            self.systemMetrics = snapshot
-            if let previous = self.systemMetricsHistory.last, snapshot.sampledAt < previous.sampledAt {
-                self.systemMetricsHistory.removeAll()
+            if self.systemDetailDemand != demand {
+                self.systemMetricsTask = nil
+                self.pollSystemMetrics()
+                return
             }
-            self.systemMetricsHistory.append(snapshot)
-            self.systemMetricsHistory = Array(self.systemMetricsHistory.filter {
-                snapshot.sampledAt.timeIntervalSince($0.sampledAt) <= 120
-            }.suffix(61))
-            self.systemMetricsNow = Date()
             self.systemMetricsTask = nil
-            self.changed?()
+            self.applySystemMetrics(snapshot)
         }
+    }
+
+    func applySystemMetrics(_ snapshot: SystemMetricsSnapshot, at time: Date = Date()) {
+        systemMetrics = snapshot
+        let chronological = systemMetricsHistory.last.map { snapshot.sampledAt >= $0.sampledAt } ?? true
+        var history = chronological ? systemMetricsHistory : []
+        // Construct the chart window locally so observers receive one history update per sample.
+        history.append(Self.historySnapshot(snapshot))
+        systemMetricsHistory = Array(history.filter {
+            snapshot.sampledAt.timeIntervalSince($0.sampledAt) <= 120
+        }.suffix(61))
+        systemMetricsNow = time
+        changed?()
+    }
+
+    func expireSystemMetrics(at time: Date) {
+        guard let snapshot = systemMetrics, snapshot.fresh(at: time) == nil else { return }
+        let history = systemMetricsHistory.filter {
+            let age = time.timeIntervalSince($0.sampledAt)
+            return age >= 0 && age <= 120
+        }
+        if history.count != systemMetricsHistory.count { systemMetricsHistory = history }
+        guard currentSystemMetrics != nil else { return }
+        // A delayed sampler still expires displayed readings without publishing every timer tick.
+        systemMetricsNow = time
+        changed?()
+    }
+
+    static func historySnapshot(_ snapshot: SystemMetricsSnapshot) -> SystemMetricsSnapshot {
+        SystemMetricsSnapshot(sampledAt: snapshot.sampledAt, cpuUsagePercent: snapshot.cpuUsagePercent,
+            gpuUsagePercent: snapshot.gpuUsagePercent, memoryUsedBytes: snapshot.memoryUsedBytes,
+            memoryTotalBytes: snapshot.memoryTotalBytes)
     }
 
     private func cancelSystemMetrics() {
         systemMetricsGeneration += 1
-        systemMetricsTask?.cancel()
-        systemMetricsTask = nil
+        let generation = systemMetricsGeneration
+        let previous = systemMetricsTask
+        previous?.cancel()
+        let monitor = systemMonitor
+        // Serialize cleanup with any in-flight sample before a wake or visibility change resumes it.
+        systemMetricsTask = Task { [weak self] in
+            await previous?.value
+            await monitor.reset()
+            guard let self, generation == self.systemMetricsGeneration else { return }
+            self.systemMetricsTask = nil
+            if self.started && !self.sleeping && self.needsSystemMetrics { self.pollSystemMetrics(reset: true) }
+        }
         systemMetrics = nil
         systemMetricsHistory.removeAll()
         changed?()
@@ -378,15 +441,31 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func apply(_ snapshot: LogSnapshot) {
-        if let latest = snapshot.latestSample { sample = latest }
-        localDayUsage = snapshot.todayUsage
-        recentTPSSamples = snapshot.recentSamples
-        tpsHistoryBackfilling = snapshot.historyBackfilling
-        tpsHistoryIsUnattributed = snapshot.historyIsUnattributed
-        latestUnmeasurable = snapshot.hasUnmeasurableResponse
-        if quota == nil { quota = snapshot.cachedQuota }
-        changed?()
+    func apply(_ snapshot: LogSnapshot) {
+        var menuChanged = false
+        if let latest = snapshot.latestSample, latest != sample {
+            sample = latest
+            menuChanged = true
+        }
+        if localDayUsage != snapshot.todayUsage {
+            var previous = localDayUsage
+            if let time = snapshot.todayUsage?.updatedAt { previous?.updatedAt = time }
+            // Freshness belongs to the detail view; the menu displays totals and availability.
+            menuChanged = menuChanged || previous != snapshot.todayUsage
+            localDayUsage = snapshot.todayUsage
+        }
+        if recentTPSSamples != snapshot.recentSamples { recentTPSSamples = snapshot.recentSamples }
+        if tpsHistoryBackfilling != snapshot.historyBackfilling { tpsHistoryBackfilling = snapshot.historyBackfilling }
+        if tpsHistoryIsUnattributed != snapshot.historyIsUnattributed { tpsHistoryIsUnattributed = snapshot.historyIsUnattributed }
+        if latestUnmeasurable != snapshot.hasUnmeasurableResponse {
+            latestUnmeasurable = snapshot.hasUnmeasurableResponse
+            menuChanged = true
+        }
+        if quota == nil, let cached = snapshot.cachedQuota {
+            quota = cached
+            menuChanged = true
+        }
+        if menuChanged { changed?() }
     }
 
     func systemWillSleep() {

@@ -505,3 +505,45 @@ final class DetailPanelMeasurement: ObservableObject {
         (heights[.content] ?? 280) > viewportHeight(maximum: maximum) + 0.5
     }
 }
+
+@MainActor final class PopoverContentHost {
+    private let popover: NSPopover
+    private let model: AppModel
+    private let updates: AppUpdates
+    private let onOpenSettings: () -> Void
+    private let onOpenAbout: () -> Void
+    private(set) var controller: NSHostingController<PopoverView>?
+
+    init(popover: NSPopover, model: AppModel, updates: AppUpdates,
+         onOpenSettings: @escaping () -> Void = {}, onOpenAbout: @escaping () -> Void = {}) {
+        self.popover = popover
+        self.model = model
+        self.updates = updates
+        self.onOpenSettings = onOpenSettings
+        self.onOpenAbout = onOpenAbout
+    }
+
+    @discardableResult
+    func prepare(panelHeight: CGFloat) -> NSHostingController<PopoverView> {
+        if let controller {
+            if controller.rootView.panelHeight != panelHeight { controller.rootView.panelHeight = panelHeight }
+            return controller
+        }
+        let controller = NSHostingController(rootView: PopoverView(model: model, updates: updates,
+            onOpenSettings: onOpenSettings, onOpenAbout: onOpenAbout, panelHeight: panelHeight))
+        controller.sizingOptions = [.preferredContentSize]
+        self.controller = controller
+        popover.contentViewController = controller
+        return controller
+    }
+
+    @discardableResult
+    func releaseIfHidden() -> Bool {
+        guard !popover.isShown else { return false }
+        let hadContent = controller != nil || popover.contentViewController != nil
+        // Detach both owners so hidden details stop observing live model updates.
+        popover.contentViewController = nil
+        controller = nil
+        return hadContent
+    }
+}

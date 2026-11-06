@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct LogSnapshot: Sendable {
@@ -35,11 +36,61 @@ public actor LogMonitor {
         var activity: LocalActivityState?
         var history: [SourcedTPSSample]?
     }
+    private struct FileMetadata: Equatable {
+        let identity: String
+        let size: UInt64
+        let modifiedAt: Date
+        let modificationSeconds: Int
+        let modificationNanoseconds: Int
+        let type: mode_t
+        let permissions: mode_t
+
+        init?(_ url: URL) {
+            var attributes = stat()
+            let result = url.withUnsafeFileSystemRepresentation { path in
+                guard let path else { return Int32(-1) }
+                return Darwin.lstat(path, &attributes)
+            }
+            guard result == 0, attributes.st_size >= 0 else { return nil }
+            identity = "\(attributes.st_dev)-\(attributes.st_ino)"
+            size = UInt64(attributes.st_size)
+            modificationSeconds = attributes.st_mtimespec.tv_sec
+            modificationNanoseconds = attributes.st_mtimespec.tv_nsec
+            // Match Foundation's reference-epoch precision so existing checkpoints remain unchanged.
+            modifiedAt = Date(timeIntervalSinceReferenceDate: Double(modificationSeconds)
+                - Date.timeIntervalBetween1970AndReferenceDate + Double(modificationNanoseconds) / 1_000_000_000)
+            type = attributes.st_mode & mode_t(S_IFMT)
+            permissions = attributes.st_mode & 0o7777
+        }
+
+        var isDirectory: Bool { type == mode_t(S_IFDIR) }
+        var isRegularFile: Bool { type == mode_t(S_IFREG) }
+
+        func hasSameDirectoryContents(as other: FileMetadata) -> Bool {
+            identity == other.identity && modificationSeconds == other.modificationSeconds
+                && modificationNanoseconds == other.modificationNanoseconds && permissions == other.permissions
+        }
+    }
+    private struct LogFile: Equatable {
+        let url: URL
+        let metadata: FileMetadata
+    }
+    private struct DirectoryListing {
+        let metadata: FileMetadata
+        let entries: [URL]
+    }
     private let home: URL
     private let cacheURL: URL?
     private var checkpoint: Checkpoint
-    private var inventory: [String: URL] = [:]
-    private var directories: [URL: (Date, [URL], [URL])] = [:]
+    private var inventory: [String: LogFile] = [:]
+    private var identitiesByPath: [URL: String] = [:]
+    private var orderedInventory: [(key: String, value: LogFile)] = []
+    private var inventoryChanged = false
+    private var directories: [URL: DirectoryListing] = [:]
+    private var visitedDirectories: Set<URL> = []
+    private var rootIdentities: [URL: String] = [:]
+    private var lastInventoryScan: Date?
+    private let fileEvents: any LogFileEventReading
     private var backfillIndex = 0
     private var lastSave = Date.distantPast
     private let maxLineBytes = 8 * 1024 * 1024
@@ -47,7 +98,12 @@ public actor LogMonitor {
     private var readFailed = false
 
     public init(home: URL, cacheURL: URL? = nil, persist: Bool = true) {
-        self.home = home.standardizedFileURL
+        self.init(home: home, cacheURL: cacheURL, persist: persist, fileEvents: LogFileEvents(home: home))
+    }
+
+    init(home: URL, cacheURL: URL? = nil, persist: Bool = true, fileEvents: any LogFileEventReading) {
+        self.home = LogFilePaths.canonical(home)
+        self.fileEvents = fileEvents
         if persist {
             let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             // A stable home hash separates custom CODEX_HOME counters without storing project paths.
@@ -60,6 +116,11 @@ public actor LogMonitor {
         } else { checkpoint = Checkpoint() }
         checkpoint.version = 3
         activity = LocalActivityLedger(state: checkpoint.activity ?? LocalActivityState())
+        checkpoint.activity = nil
+        // Restore old parent identities once; newly parsed metadata registers them during reads.
+        for cursor in checkpoint.files.values where cursor.parser.source == .desktop {
+            if let id = cursor.parser.sessionIdentifier { activity.registerDesktop(id) }
+        }
         if checkpoint.history == nil, let sample = checkpoint.sample {
             checkpoint.history = [SourcedTPSSample(sample: sample, source: checkpoint.sampleSource ?? .unknown)]
         }
@@ -69,27 +130,15 @@ public actor LogMonitor {
         readFailed = false
         activity.prune(now: now)
         let dayStart = calendar.startOfDay(for: now)
-        let rootsReadable = ["sessions", "archived_sessions"].contains {
-            let path = home.appendingPathComponent($0).path
-            return FileManager.default.isReadableFile(atPath: path)
-                && (try? FileManager.default.attributesOfItem(atPath: path)[.type] as? FileAttributeType) == .typeDirectory
-        }
-        inventory.removeAll(keepingCapacity: true)
-        for name in ["sessions", "archived_sessions"] {
-            discover(home.appendingPathComponent(name), depth: 0)
-        }
-        let ordered = inventory.sorted { lhs, rhs in
-            let left = (try? lhs.value.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let right = (try? rhs.value.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            return left > right
-        }
+        let rootsReadable = refreshInventory(now: now)
+        let ordered = orderedInventory
         let recent = TPSHistory.preferred(checkpoint.history ?? [])
         let cutoff = recent.count >= TPSHistory.limit ? recent.first?.completedAt : nil
         var historyCandidates: Set<String> = []
-        for (identity, url) in ordered {
+        for (identity, file) in ordered {
             guard let cursor = checkpoint.files[identity], cursor.usageParser == nil,
                   cursor.parser.source != .excluded, cursor.parser.source != .other else { continue }
-            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let modified = file.metadata.modifiedAt
             if let cutoff {
                 if modified >= cutoff || (cursor.sample?.completedAt ?? .distantPast) >= cutoff { historyCandidates.insert(identity) }
             } else {
@@ -97,13 +146,12 @@ public actor LogMonitor {
                 break
             }
         }
-        var pending = ordered.filter { identity, url in
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  let size = (attrs[.size] as? NSNumber)?.uint64Value else { return false }
+        var pending = ordered.filter { identity, file in
+            let size = file.metadata.size
             guard let cursor = checkpoint.files[identity] else { return size > 0 }
-            let modified = attrs[.modificationDate] as? Date
+            let modified = file.metadata.modifiedAt
             if cursor.usageParser == nil && cursor.parser.source != .other
-                && ((modified ?? .distantPast) >= dayStart || historyCandidates.contains(identity)) { return size > 0 }
+                && (modified >= dayStart || historyCandidates.contains(identity)) { return size > 0 }
             if cursor.waitingForMore && size == cursor.observedSize && modified == cursor.modifiedAt { return false }
             return size != cursor.offset || modified != cursor.modifiedAt
         }
@@ -116,13 +164,9 @@ public actor LogMonitor {
         }
         var budget = 16 * 1024 * 1024
         var changed = false
-        for (identity, url) in pending {
+        for (identity, file) in pending {
             if budget <= 0 { break }
-            changed = read(url, identity: identity, budget: &budget, now: now) || changed
-        }
-        // Parent metadata can precede today by months; existing parser identities avoid rereading it.
-        for cursor in checkpoint.files.values where cursor.parser.source == .desktop {
-            if let id = cursor.parser.sessionIdentifier { activity.registerDesktop(id) }
+            changed = read(file, identity: identity, budget: &budget, now: now) || changed
         }
         let eligible = checkpoint.files.values.filter { $0.parser.source == .desktop || $0.parser.source == .unknown }
         var samples = eligible.compactMap { cursor -> (TPSSample, SessionSource)? in
@@ -144,18 +188,16 @@ public actor LogMonitor {
         if changed && Date().timeIntervalSince(lastSave) >= 10 { save() }
         let sample = checkpoint.sample
         let latest = checkpoint.latestResponseAt
-        let pendingToday = ordered.contains { identity, url in
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  (attrs[.modificationDate] as? Date ?? .distantPast) >= dayStart else { return false }
+        let pendingToday = ordered.contains { identity, file in
+            guard file.metadata.modifiedAt >= dayStart else { return false }
             if checkpoint.files[identity]?.parser.source == .other { return false }
             guard let cursor = checkpoint.files[identity], cursor.usageParser != nil else { return true }
-            return cursor.offset < ((attrs[.size] as? NSNumber)?.uint64Value ?? 0) && !cursor.waitingForMore
+            return cursor.offset < file.metadata.size && !cursor.waitingForMore
         }
-        let historyPending = !historyCandidates.isEmpty || ordered.contains { identity, url in
+        let historyPending = !historyCandidates.isEmpty || ordered.contains { identity, file in
             guard let cursor = checkpoint.files[identity] else { return true }
-            guard cursor.usageParser != nil, !cursor.waitingForMore,
-                  let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber else { return false }
-            return cursor.offset < size.uint64Value
+            guard cursor.usageParser != nil, !cursor.waitingForMore else { return false }
+            return cursor.offset < file.metadata.size
         }
         let unsupported = checkpoint.files.values.contains { ($0.usageParser?.unsupportedAt ?? .distantPast) >= dayStart }
         var today = activity.summary(now: now, calendar: calendar, backfilling: pendingToday,
@@ -169,44 +211,131 @@ public actor LogMonitor {
                            historyIsUnattributed: !(checkpoint.history ?? []).isEmpty && !(checkpoint.history ?? []).contains { $0.source == .desktop })
     }
 
-    private func discover(_ directory: URL, depth: Int) {
-        guard depth <= 8, let attributes = try? FileManager.default.attributesOfItem(atPath: directory.path),
-              attributes[.type] as? FileAttributeType == .typeDirectory else { return }
-        let modified = attributes[.modificationDate] as? Date ?? .distantPast
-        let children: [URL]
-        let files: [URL]
-        if let cached = directories[directory], cached.0 == modified {
-            children = cached.1; files = cached.2
-        } else {
-            let urls: [URL]
-            do {
-                urls = try FileManager.default.contentsOfDirectory(at: directory,
-                    includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])
-            } catch { readFailed = true; return }
-            var childList: [URL] = [], fileList: [URL] = []
-            for url in urls {
-                guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]),
-                      values.isSymbolicLink != true else { continue }
-                if values.isDirectory == true { childList.append(url) }
-                else if values.isRegularFile == true && url.pathExtension == "jsonl" { fileList.append(url) }
+    private func refreshInventory(now: Date) -> Bool {
+        let changes = fileEvents.drain()
+        var roots: [(URL, FileMetadata)] = []
+        var readable = false
+        for name in ["sessions", "archived_sessions"] {
+            let root = home.appendingPathComponent(name)
+            guard let metadata = FileMetadata(root), metadata.isDirectory else { continue }
+            roots.append((root, metadata))
+            readable = FileManager.default.isReadableFile(atPath: root.path) || readable
+        }
+        let identities = Dictionary(uniqueKeysWithValues: roots.map { ($0.0, $0.1.identity) })
+        let elapsed = lastInventoryScan.map { now.timeIntervalSince($0) }
+        let reconcile = changes == nil || changes?.mustRescan == true || changes?.requiresPolling == true || lastInventoryScan == nil
+            || identities != rootIdentities || elapsed.map { $0 < 0 || $0 >= 60 } == true
+        inventoryChanged = false
+        if reconcile {
+            inventory.removeAll(keepingCapacity: true)
+            identitiesByPath.removeAll(keepingCapacity: true)
+            visitedDirectories.removeAll(keepingCapacity: true)
+            for (root, metadata) in roots { discover(root, metadata: metadata, depth: 0) }
+            directories = directories.filter { visitedDirectories.contains($0.key) }
+            lastInventoryScan = now
+            inventoryChanged = true
+        } else if let changes {
+            // Process ancestors first; a recursive directory refresh already covers its descendants.
+            var refreshedDirectories: [URL] = []
+            for path in changes.paths.sorted(by: { $0.path.count < $1.path.count }) {
+                if refreshedDirectories.contains(where: { Self.contains(path, under: $0) }) { continue }
+                guard let root = roots.first(where: { Self.contains(path, under: $0.0) })?.0 else { continue }
+                let relativeDepth = path.pathComponents.count - root.pathComponents.count
+                guard relativeDepth <= 9, hasDirectoryAncestors(path, root: root) else {
+                    removeInventory(under: path)
+                    continue
+                }
+                guard let metadata = FileMetadata(path) else { removeInventory(under: path); continue }
+                if metadata.isDirectory {
+                    removeInventory(under: path)
+                    discover(path, metadata: metadata, depth: relativeDepth)
+                    refreshedDirectories.append(path)
+                } else if metadata.isRegularFile && path.pathExtension == "jsonl" {
+                    updateInventory(LogFile(url: path, metadata: metadata))
+                } else {
+                    removeInventory(under: path)
+                }
             }
-            children = childList; files = fileList
-            directories[directory] = (modified, children, files)
         }
-        for url in files {
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  let inode = attrs[.systemFileNumber] as? NSNumber,
-                  let device = attrs[.systemNumber] as? NSNumber else { continue }
-            inventory["\(device)-\(inode)"] = url
+        rootIdentities = identities
+        if inventoryChanged {
+            orderedInventory = inventory.sorted { $0.value.metadata.modifiedAt > $1.value.metadata.modifiedAt }
         }
-        for child in children { discover(child, depth: depth + 1) }
+        if reconcile || inventoryChanged || changes?.paths.isEmpty == false {
+            fileEvents.update(files: orderedInventory.map { $0.value.url }, directories: Array(directories.keys) + [home])
+        }
+        // A failed listing is never a complete cached inventory; retry it even without another event.
+        if readFailed { lastInventoryScan = nil }
+        return readable
     }
 
-    private func read(_ url: URL, identity: String, budget: inout Int, now: Date) -> Bool {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = (attrs[.size] as? NSNumber)?.uint64Value else { return false }
+    private static func contains(_ url: URL, under root: URL) -> Bool {
+        url.path == root.path || url.path.hasPrefix(root.path + "/")
+    }
+
+    private func hasDirectoryAncestors(_ url: URL, root: URL) -> Bool {
+        if url.path == root.path { return true }
+        var parent = url.deletingLastPathComponent()
+        while Self.contains(parent, under: root) {
+            guard FileMetadata(parent)?.isDirectory == true else { return false }
+            if parent.path == root.path { return true }
+            parent.deleteLastPathComponent()
+        }
+        return false
+    }
+
+    private func removeInventory(under path: URL) {
+        let removed = inventory.filter { Self.contains($0.value.url, under: path) }
+        for (identity, file) in removed {
+            inventory.removeValue(forKey: identity)
+            identitiesByPath.removeValue(forKey: file.url)
+        }
+        directories = directories.filter { !Self.contains($0.key, under: path) }
+        inventoryChanged = inventoryChanged || !removed.isEmpty
+    }
+
+    private func updateInventory(_ file: LogFile) {
+        let identity = file.metadata.identity
+        if let oldIdentity = identitiesByPath[file.url], oldIdentity != identity {
+            inventory.removeValue(forKey: oldIdentity)
+            inventoryChanged = true
+        }
+        if let previous = inventory[identity], previous.url != file.url {
+            identitiesByPath.removeValue(forKey: previous.url)
+        }
+        if inventory[identity] != file { inventoryChanged = true }
+        inventory[identity] = file
+        identitiesByPath[file.url] = identity
+    }
+
+    private func discover(_ directory: URL, metadata: FileMetadata, depth: Int) {
+        guard depth <= 8, metadata.isDirectory else { return }
+        visitedDirectories.insert(directory)
+        let entries: [URL]
+        if let cached = directories[directory], metadata.hasSameDirectoryContents(as: cached.metadata) {
+            entries = cached.entries
+        } else {
+            do {
+                entries = try FileManager.default.contentsOfDirectory(at: directory,
+                    includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            } catch { readFailed = true; return }
+            directories[directory] = DirectoryListing(metadata: metadata, entries: entries)
+        }
+        for url in entries {
+            // lstat avoids following links and does not fetch unused extended attributes.
+            guard let metadata = FileMetadata(url) else { continue }
+            if metadata.isDirectory {
+                discover(url, metadata: metadata, depth: depth + 1)
+            } else if metadata.isRegularFile && url.pathExtension == "jsonl" {
+                updateInventory(LogFile(url: url, metadata: metadata))
+            }
+        }
+    }
+
+    private func read(_ file: LogFile, identity: String, budget: inout Int, now: Date) -> Bool {
+        let size = file.metadata.size
         var cursor = checkpoint.files[identity] ?? Cursor()
-        let modified = attrs[.modificationDate] as? Date ?? .distantPast
+        let modified = file.metadata.modifiedAt
         let reset = size < cursor.offset || (size == cursor.offset && modified != cursor.modifiedAt)
         if reset {
             cursor = Cursor()
@@ -223,8 +352,20 @@ public actor LogMonitor {
         }
         guard size > cursor.offset else { return reset }
         if cursor.waitingForMore && cursor.observedSize == size && cursor.modifiedAt == modified { return false }
-        guard let handle = try? FileHandle(forReadingFrom: url) else { readFailed = true; return false }
+        let descriptor = file.url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else { readFailed = true; return false }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
+        var openedAttributes = stat()
+        guard Darwin.fstat(descriptor, &openedAttributes) == 0,
+              openedAttributes.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+              "\(openedAttributes.st_dev)-\(openedAttributes.st_ino)" == identity else {
+            readFailed = true
+            return false
+        }
         do {
             if let anchor = cursor.anchor, cursor.offset > 0 {
                 let length = min(cursor.offset, 256)
@@ -234,7 +375,9 @@ public actor LogMonitor {
             }
             let readStart = cursor.offset
             try handle.seek(toOffset: cursor.offset)
-            let count = min(budget, cursor.discardingOversizedLine ? 2 * 1024 * 1024 : maxLineBytes)
+            // Keep the cursor consistent with this poll's metadata if a writer appends during the read.
+            let remaining = Int(min(size - cursor.offset, UInt64(Int.max)))
+            let count = min(budget, remaining, cursor.discardingOversizedLine ? 2 * 1024 * 1024 : maxLineBytes)
             guard let data = try handle.read(upToCount: count), !data.isEmpty else { return false }
             budget -= data.count
             var consumed = 0
@@ -251,16 +394,18 @@ public actor LogMonitor {
                 }
             }
             for index in data.indices where index >= consumed && data[index] == 10 {
-                let line = data.subdata(in: consumed..<index)
-                if let sample = cursor.parser.consume(line) {
-                    cursor.sample = sample
-                    checkpoint.history = TPSHistory.retainingSources((checkpoint.history ?? []) + [
-                        SourcedTPSSample(sample: sample, source: cursor.parser.source)])
-                }
-                if let usage = cursor.usageParser?.consume(line, observedAt: now) { activity.consume(usage, now: now) }
-                activity.register(cursor.usageParser?.session, origin: cursor.usageParser?.origin)
-                if cursor.parser.source != .excluded && cursor.parser.source != .other {
-                    readQuota(line)
+                autoreleasepool {
+                    let line = data.subdata(in: consumed..<index)
+                    if let sample = cursor.parser.consume(line) {
+                        cursor.sample = sample
+                        checkpoint.history = TPSHistory.retainingSources((checkpoint.history ?? []) + [
+                            SourcedTPSSample(sample: sample, source: cursor.parser.source)])
+                    }
+                    if let usage = cursor.usageParser?.consume(line, observedAt: now) { activity.consume(usage, now: now) }
+                    activity.register(cursor.usageParser?.session, origin: cursor.usageParser?.origin)
+                    if cursor.parser.source != .excluded && cursor.parser.source != .other {
+                        readQuota(line)
+                    }
                 }
                 consumed = index + 1
             }
@@ -307,14 +452,16 @@ public actor LogMonitor {
     }
 
     private static func parseDate(_ text: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+        (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text))
+            ?? (try? Date.ISO8601FormatStyle(includingFractionalSeconds: false).parse(text))
     }
 
     private func save() {
+        guard let url = cacheURL else { return }
+        // Keep only one live ledger between saves, avoiding copy-on-write snapshots of its dictionaries.
         checkpoint.activity = activity.state
-        guard let url = cacheURL, let data = try? JSONEncoder().encode(checkpoint) else { return }
+        defer { checkpoint.activity = nil }
+        guard let data = autoreleasepool(invoking: { try? JSONEncoder().encode(checkpoint) }) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                               attributes: [.posixPermissions: 0o700])
         try? data.write(to: url, options: .atomic)

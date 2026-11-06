@@ -3,19 +3,27 @@ import CryptoKit
 import Foundation
 
 enum ActivityIdentity {
+    private static let hexDigits = Array("0123456789abcdef".utf8)
+
     static func key(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(64)
+        for byte in SHA256.hash(data: Data(value.utf8)) {
+            bytes.append(hexDigits[Int(byte >> 4)])
+            bytes.append(hexDigits[Int(byte & 15)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
-struct LocalSessionOrigin: Codable, Sendable {
+struct LocalSessionOrigin: Codable, Sendable, Equatable {
     enum Kind: String, Codable, Sendable { case desktop, child, other, excluded, unknown }
     var kind: Kind
     var parent: String?
     var modernSeen = false
 }
 
-struct LocalUsageEvent: Codable, Sendable {
+struct LocalUsageEvent: Codable, Sendable, Equatable {
     var session: String
     var aliases: [String]
     var timestamp: Date
@@ -166,8 +174,17 @@ struct LocalActivityState: Codable, Sendable {
 }
 
 struct LocalActivityLedger: Sendable {
+    private struct SummaryCache: Sendable {
+        let calendar: Calendar
+        let computedAt: Date
+        let validUntil: Date
+        let usage: LocalDayUsage
+    }
+
     private(set) var state: LocalActivityState
     private var aliases: [String: String] = [:]
+    private var oldestEventAt: Date?
+    private var cachedSummary: SummaryCache?
     init(state: LocalActivityState = LocalActivityState()) {
         self.state = state
         rebuildIndex()
@@ -175,11 +192,16 @@ struct LocalActivityLedger: Sendable {
     mutating func register(_ session: String?, origin: LocalSessionOrigin?) {
         guard let session, var origin else { return }
         origin.modernSeen = origin.modernSeen || state.origins[session]?.modernSeen == true
+        guard state.origins[session] != origin else { return }
         state.origins[session] = origin
+        cachedSummary = nil
     }
     mutating func registerDesktop(_ rawSession: String) {
         let key = ActivityIdentity.key("session:" + rawSession)
-        if state.origins[key] == nil { state.origins[key] = LocalSessionOrigin(kind: .desktop) }
+        if state.origins[key] == nil {
+            state.origins[key] = LocalSessionOrigin(kind: .desktop)
+            cachedSummary = nil
+        }
     }
     mutating func consume(_ event: LocalUsageEvent, now: Date) {
         guard event.timestamp >= now.addingTimeInterval(-3 * 86400), event.timestamp <= now.addingTimeInterval(86400) else { return }
@@ -188,34 +210,57 @@ struct LocalActivityLedger: Sendable {
             return existing.responseKey == event.responseKey
         }
         if let owner = owners.sorted().first, var existing = state.events[owner] {
+            let previous = existing
             let allAliases = Set(existing.aliases + event.aliases + owners.flatMap { state.events[$0]?.aliases ?? [] })
             if event.modern && !existing.modern { existing = event }
             existing.aliases = allAliases.sorted()
+            guard existing != previous || owners.contains(where: { $0 != owner }) else { return }
             state.events[owner] = existing
+            oldestEventAt = min(oldestEventAt ?? existing.timestamp, existing.timestamp)
             for other in owners where other != owner { state.events.removeValue(forKey: other) }
             for alias in allAliases { aliases[alias] = owner }
         } else {
-            guard state.events.count < 100_000, let key = event.aliases.first else { state.capacityExceededAt = now; return }
+            guard state.events.count < 100_000, let key = event.aliases.first else {
+                state.capacityExceededAt = now
+                cachedSummary = nil
+                return
+            }
             state.events[key] = event
+            oldestEventAt = min(oldestEventAt ?? event.timestamp, event.timestamp)
             for alias in event.aliases { aliases[alias] = key }
         }
+        cachedSummary = nil
     }
     mutating func prune(now: Date) {
         let cutoff = now.addingTimeInterval(-3 * 86400)
-        if state.events.values.contains(where: { $0.timestamp < cutoff }) {
-            state.events = state.events.filter { $0.value.timestamp >= cutoff }
-            rebuildIndex()
-        }
+        guard let oldestEventAt, oldestEventAt < cutoff else { return }
+        state.events = state.events.filter { $0.value.timestamp >= cutoff }
+        rebuildIndex()
+        cachedSummary = nil
     }
-    func summary(now: Date, calendar: Calendar, backfilling: Bool, partial: Bool) -> LocalDayUsage {
+    mutating func summary(now: Date, calendar: Calendar, backfilling: Bool, partial: Bool) -> LocalDayUsage {
+        if let cachedSummary, cachedSummary.calendar == calendar,
+           cachedSummary.usage.timeZoneIdentifier == calendar.timeZone.identifier,
+           now >= cachedSummary.computedAt, now < cachedSummary.validUntil {
+            var result = cachedSummary.usage
+            result.updatedAt = now
+            result.isBackfilling = backfilling
+            result.isPartial = result.isPartial || partial
+            return result
+        }
         let start = calendar.startOfDay(for: now)
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86400)
+        var validUntil = end
         var result = LocalDayUsage(dayStart: start, timeZoneIdentifier: calendar.timeZone.identifier, updatedAt: now)
         result.hasDesktopLogs = state.origins.values.contains { $0.kind == .desktop }
-        result.isBackfilling = backfilling
-        result.isPartial = partial || state.capacityExceededAt.map { $0 >= start } == true
+        result.isPartial = state.capacityExceededAt.map { $0 >= start } == true
         for event in state.events.values where event.timestamp >= start && event.timestamp < end {
-            guard event.timestamp <= now.addingTimeInterval(60) else { result.isPartial = true; continue }
+            guard event.timestamp <= now.addingTimeInterval(60) else {
+                // A future record becomes eligible without another log append at this boundary.
+                validUntil = min(validUntil, event.timestamp.addingTimeInterval(-60))
+                result.isPartial = true
+                continue
+            }
             guard desktopStatus(event.session) == true else {
                 if desktopStatus(event.session) == nil { result.isPartial = true }
                 continue
@@ -237,6 +282,9 @@ struct LocalActivityLedger: Sendable {
             else { result.reasoningOutput = nil }
             result.responses += 1
         }
+        cachedSummary = SummaryCache(calendar: calendar, computedAt: now, validUntil: validUntil, usage: result)
+        result.isBackfilling = backfilling
+        result.isPartial = result.isPartial || partial
         return result
     }
     private func desktopStatus(_ session: String) -> Bool? {
@@ -252,8 +300,14 @@ struct LocalActivityLedger: Sendable {
         return nil
     }
     private mutating func rebuildIndex() {
-        aliases.removeAll(keepingCapacity: true)
-        for (key, event) in state.events { for alias in event.aliases { aliases[alias] = key } }
+        var rebuilt: [String: String] = [:]
+        rebuilt.reserveCapacity(state.events.count)
+        oldestEventAt = nil
+        for (key, event) in state.events {
+            oldestEventAt = min(oldestEventAt ?? event.timestamp, event.timestamp)
+            for alias in event.aliases { rebuilt[alias] = key }
+        }
+        aliases = rebuilt
     }
 }
 

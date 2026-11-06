@@ -140,7 +140,7 @@ import Testing
         var parser = LocalUsageParser(); var ledger = LocalActivityLedger()
         try feed([meta(), modern("yesterday", at: midnight.addingTimeInterval(-1)),
                   modern("today", at: midnight.addingTimeInterval(1))], parser: &parser, ledger: &ledger)
-        let restored = LocalActivityLedger(state: try JSONDecoder().decode(LocalActivityState.self, from: JSONEncoder().encode(ledger.state)))
+        var restored = LocalActivityLedger(state: try JSONDecoder().decode(LocalActivityState.self, from: JSONEncoder().encode(ledger.state)))
         let current = restored.summary(now: time, calendar: localCalendar, backfilling: false, partial: false)
         #expect(current.total == 1100 && current.matches(time, calendar: localCalendar))
         #expect(!current.matches(midnight.addingTimeInterval(86400), calendar: localCalendar))
@@ -181,6 +181,69 @@ import Testing
         #expect(later.total == 1100)
         _ = parser.consume(Data("{\"type\":\"token_usage_record\",broken}".utf8), observedAt: time)
         #expect(parser.unsupportedAt != nil)
+    }
+
+    @Test func summaryChangesAtFutureToleranceAndHandlesBackwardClockMovement() throws {
+        var parser = LocalUsageParser(); var ledger = LocalActivityLedger()
+        try feed([meta(), modern(at: time.addingTimeInterval(600))], parser: &parser, ledger: &ledger)
+        let initial = ledger.summary(now: time, calendar: calendar, backfilling: true, partial: true)
+        #expect(initial.total == 0 && initial.isPartial && initial.isBackfilling)
+        let waitingAt = time.addingTimeInterval(539)
+        let waiting = ledger.summary(now: waitingAt, calendar: calendar, backfilling: false, partial: false)
+        #expect(waiting.total == 0 && waiting.isPartial && !waiting.isBackfilling)
+        #expect(waiting.updatedAt == waitingAt)
+        let eligible = ledger.summary(now: time.addingTimeInterval(540), calendar: calendar, backfilling: false, partial: false)
+        #expect(eligible.total == 1100 && !eligible.isPartial)
+        let earlier = ledger.summary(now: waitingAt, calendar: calendar, backfilling: false, partial: false)
+        #expect(earlier.total == 0 && earlier.isPartial)
+    }
+
+    @Test func cachedSummaryUpdatesWhenModernUsageReplacesLegacyUsage() throws {
+        var parser = LocalUsageParser(); var ledger = LocalActivityLedger()
+        let cumulative = usage(input: 5000, output: 500)
+        try feed([meta(), legacy(totals: cumulative)], parser: &parser, ledger: &ledger)
+        #expect(ledger.summary(now: time, calendar: calendar, backfilling: false, partial: false).total == 1100)
+        try feed([modern(input: 2000, output: 200, totals: cumulative)], parser: &parser, ledger: &ledger)
+        let replaced = ledger.summary(now: time, calendar: calendar, backfilling: false, partial: false)
+        #expect(replaced.total == 2200 && replaced.responses == 1 && !replaced.isPartial)
+        let flagged = ledger.summary(now: time.addingTimeInterval(1), calendar: calendar, backfilling: true, partial: true)
+        #expect(flagged.total == 2200 && flagged.isBackfilling && flagged.isPartial)
+        let unflagged = ledger.summary(now: time.addingTimeInterval(2), calendar: calendar, backfilling: false, partial: false)
+        #expect(unflagged.total == 2200 && !unflagged.isBackfilling && !unflagged.isPartial)
+    }
+
+    @Test func cachedSummaryRollsOverAtMidnightAndRebinsForAnotherTimeZone() throws {
+        let midnight = calendar.startOfDay(for: time)
+        let nextDay = try #require(calendar.date(byAdding: .day, value: 1, to: midnight))
+        let lastSecond = nextDay.addingTimeInterval(-1)
+        var parser = LocalUsageParser(); var ledger = LocalActivityLedger()
+        try feed([meta(), modern(at: lastSecond)], parser: &parser, ledger: &ledger)
+        let before = ledger.summary(now: lastSecond, calendar: calendar, backfilling: false, partial: false)
+        #expect(before.total == 1100)
+        let after = ledger.summary(now: nextDay, calendar: calendar, backfilling: false, partial: false)
+        #expect(after.total == 0 && after.dayStart == nextDay)
+        var otherZone = calendar
+        otherZone.timeZone = TimeZone(secondsFromGMT: -8 * 3600)!
+        let rebinned = ledger.summary(now: nextDay, calendar: otherZone, backfilling: false, partial: false)
+        #expect(rebinned.total == 1100 && rebinned.timeZoneIdentifier == otherZone.timeZone.identifier)
+    }
+
+    @Test func pruningKeepsExactRetentionBoundaryAndRebuildsAliasesForLaterUsage() throws {
+        let oldest = time.addingTimeInterval(-3 * 86400)
+        var parser = LocalUsageParser(); var ledger = LocalActivityLedger()
+        try feed([meta(), modern(at: oldest)], parser: &parser, ledger: &ledger)
+        ledger.prune(now: time)
+        #expect(ledger.state.events.count == 1)
+        ledger.prune(now: time.addingTimeInterval(0.001))
+        #expect(ledger.state.events.isEmpty)
+        try feed([modern(at: time)], parser: &parser, ledger: &ledger)
+        let latest = ledger.summary(now: time, calendar: calendar, backfilling: false, partial: false)
+        #expect(latest.total == 1100 && latest.responses == 1)
+    }
+
+    @Test func activityHashesKeepTheExistingCheckpointIdentityFormat() {
+        #expect(ActivityIdentity.key("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        #expect(ActivityIdentity.key("").count == 64)
     }
 
     @Test func quotaOnlyTokenCountUpdatesAreNotMissingUsage() throws {
