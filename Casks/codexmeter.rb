@@ -1,10 +1,10 @@
 cask "codexmeter" do
-  version "0.5.1"
-  sha256 "ac4b82c1c5c56f562d8db56b6ea49311b64878d3274ee845b58f09916bcd1e46"
+  version "0.6.0"
+  sha256 "b87594548c6b5f99a5ca58aef66c71376bbef94773f571e2669bbf83c269a47e"
 
-  url "https://raw.githubusercontent.com/spider-man-peter-park/CodexMeter/c77af57cd4f6b43728b922bda39aa916c73934b1/dist/CodexMeter-#{version}-macOS-arm64.zip"
+  url "https://raw.githubusercontent.com/spider-man-peter-park/CodexMeter/db42d54741d4abfc81ab3c098b800b2f7d479889/dist/CodexMeter-#{version}-macOS-arm64.zip"
   name "CodexMeter"
-  desc "Codex Desktop usage and system monitoring in the menu bar"
+  desc "AI assistant usage and system monitoring in the menu bar"
   homepage "https://github.com/spider-man-peter-park/CodexMeter"
 
   livecheck do
