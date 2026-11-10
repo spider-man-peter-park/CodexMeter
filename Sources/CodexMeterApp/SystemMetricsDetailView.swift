@@ -238,6 +238,8 @@ struct SystemUsageHistoryData {
 
     func nearest(to selectedDate: Date?) -> Point? {
         guard let selectedDate else { return nil }
+        let offset = selectedDate.timeIntervalSince(end)
+        guard offset.isFinite, (-Self.duration...0).contains(offset) else { return nil }
         return points.min { abs($0.time.timeIntervalSince(selectedDate)) < abs($1.time.timeIntervalSince(selectedDate)) }
     }
 
@@ -256,7 +258,7 @@ private struct SystemUsageHistoryChart: View {
 
     var body: some View {
         let points = data.points
-        let selected = data.nearest(to: selection.date)
+        let selected = selection.selectedPoint(in: data)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(L10n.text("Usage history")).font(MeterStyle.sectionFont)
@@ -317,7 +319,7 @@ private struct SystemUsageHistoryChart: View {
                         }
                     }
                 }
-                .chartXSelection(value: selection.relativeSeconds(endingAt: data.end))
+                .chartXSelection(value: selection.relativeSeconds(in: data))
                 .frame(height: 72)
                 .accessibilityLabel(L10n.text("Usage history"))
             }
@@ -335,15 +337,32 @@ private struct SystemUsageHistoryChart: View {
             .font(MeterStyle.captionFont).foregroundStyle(.secondary)
             .frame(minHeight: 14)
         }
+        .onChange(of: data.points) { _, _ in selection.reconcile(with: data) }
     }
 }
 
-final class SystemUsageHistorySelection: ObservableObject {
-    @Published var date: Date?
+@MainActor final class SystemUsageHistorySelection: ObservableObject {
+    @Published private(set) var date: Date?
 
-    func relativeSeconds(endingAt end: Date) -> Binding<Double?> {
-        Binding(get: { [self] in date.map { $0.timeIntervalSince(end) } },
-                set: { [self] in date = $0.map { end.addingTimeInterval($0) } })
+    func selectedPoint(in data: SystemUsageHistoryData) -> SystemUsageHistoryData.Point? {
+        guard let date else { return nil }
+        return data.points.first { $0.time == date }
+    }
+
+    func relativeSeconds(in data: SystemUsageHistoryData) -> Binding<Double?> {
+        Binding(get: { [self] in selectedPoint(in: data)?.secondsFromEnd }, set: { [self] seconds in
+            guard let seconds, seconds.isFinite,
+                  (-SystemUsageHistoryData.duration...0).contains(seconds) else { select(nil); return }
+            select(data.nearest(to: data.end.addingTimeInterval(seconds))?.time)
+        })
+    }
+
+    func reconcile(with data: SystemUsageHistoryData) {
+        if date != nil, selectedPoint(in: data) == nil { select(nil) }
+    }
+
+    private func select(_ time: Date?) {
+        if date != time { date = time }
     }
 }
 

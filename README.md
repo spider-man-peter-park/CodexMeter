@@ -1,21 +1,29 @@
 # CodexMeter
 
-**Codex quota, token usage and response speed in your Mac menu bar.**
+**Codex, Cursor and DeepSeek Harness in one quiet, native Mac workspace.**
 
-Keep your remaining Codex quota and reset countdowns in sight while you work. Click a menu bar item to see plan limits, today's local token usage and recent response-speed estimates, without switching back to Codex.
+For Codex, Focus mode puts one indicator in your menu bar: the reported quota window with the least remaining allowance. Click for a quick overview, then open the resizable workspace to explore limits, local activity, account history and system metrics. Cached readings, paused refresh and unavailable data have their own visible states.
+
+Choose your assistant in the quick overview or workspace sidebar. Codex keeps its plan-window and local-activity views. Cursor reads the signed-in account's reported weekly or billing-cycle allowance. DeepSeek Harness reads local session checkpoints, with cumulative tokens and observed model timing; these are separate from daily usage and account billing. Missing or incompatible data stays unavailable.
 
 Built with Swift, SwiftUI and AppKit. No Electron, separate API key or third-party runtime dependencies.
 
 [Install](#install) · [What the numbers mean](#what-the-numbers-mean) · [Privacy](#privacy-and-data-flow) · [Detailed guide](docs/usage.md) · [Report an issue](https://github.com/spider-man-peter-park/CodexMeter/issues)
 
 <p>
-  <img src="docs/images/codexmeter-menu-bar.png" width="568" alt="CodexMeter menu bar showing weekly quota, today's local tokens and estimated response TPS">
-</p>
-<p>
-  <img src="docs/images/codexmeter-details-background-cleaned.png" width="420" alt="CodexMeter detail panel showing plan limits, local token usage and account token history, with an AI-cleaned background">
+  <img src="docs/images/codexmeter-workspace-light.png" width="860" alt="CodexMeter workspace in light English, showing Codex quota, local activity and response speed with sample data">
 </p>
 
-*Captured example readings, not live data. The detail-panel image has an AI-cleaned background for presentation and is not an unedited screenshot; the menu bar image is the original capture.*
+*Actual macOS window capture with sample data, without image retouching. [DeepSeek Harness in dark Chinese](docs/images/codexmeter-workspace-deepseek-dark.png) shows the same workspace with a different source.*
+
+## Focus and workspace
+
+- **Focus, by default:** one stable menu bar item follows the selected assistant. For Codex, `5h` or `7d` identifies the limiting cycle; a reset countdown never confirms recovery without a fresh quota reading. Cursor shows remaining allowance or reported allowance consumed, and DeepSeek Harness shows local cumulative tokens.
+- **Quick overview:** remaining quota, reset times, local tokens and the latest estimated response speed, with a direct workspace action.
+- **Native workspace:** a persistent sidebar separates plan limits, this Mac's activity, response history, account-wide usage and CPU/GPU/RAM/network details. Account dates remain distinct from the local calendar day.
+- **Individual metrics:** restore the original independent menu bar items in Settings → Menu bar appearance. Your saved visibility, labels and style choices remain available.
+
+In Focus mode, hardware sampling stops when no system detail is open. Opening a system module requests its live readings and process details; closing or minimizing the workspace releases that demand.
 
 ## At a glance
 
@@ -29,21 +37,21 @@ Built with Swift, SwiftUI and AppKit. No Electron, separate API key or third-par
 | RAM | `RAM 50%` | Physical memory used by apps, wired memory and compression |
 | Upload / download | `↑ 1.5 KB/s` above `↓ 2.3 MB/s` | Both transfer rates share one native menu bar item |
 
-*Illustrative values, not live readings.* Each metric is an independent native menu bar item: hide what you do not need, and hold Command to drag items into place. Accounts that report only weekly quota do not keep an extra unsupported 5-hour item visible after a successful read.
+*Illustrative values, not live readings.* These independent native items are available in Individual metrics mode: hide what you do not need, and hold Command to drag items into place. Focus mode shows one indicator. Accounts that report only weekly quota do not keep an unsupported 5-hour card after a successful read.
 
 - **More detail when you need it.** Each menu bar item opens its matching detail. RAM includes pressure, a two-minute history, memory composition, swap and top processes; CPU includes core usage, load averages and top processes; GPU includes supported driver readings and hardware information. Network details include the top processes with separate upload/download rates. Account token history, recent-response TPS charts and reset credits remain available.
 - **Local reminders.** Low-quota, quota-recovery and reset-credit expiry alerts, with configurable thresholds and macOS notification permission.
 - **Your menu bar, your layout.** Choose labels, typography, colors and inline or stacked TPS. CPU/GPU/RAM each have independent icon and label switches, with the label above or left of its number. Switch between enabled modules through the other-details menu.
-- **Native macOS behavior.** Light and dark appearance, launch at login, English and Simplified Chinese. No Dock icon or main window.
+- **Native macOS behavior.** Light and dark appearance, launch at login, English and Simplified Chinese. Runs in the menu bar without a Dock icon; open the workspace when needed.
 
-Each menu bar item uses a compact fixed width for its selected font, labels and layout. Changing readings, network units, countdowns or cache state does not move neighboring items. Stacked RAM aligns its label with the numeric digits, excluding `%`. Today's tokens adds an optional `tok` label between its icon and count. Details open fully expanded and fit their content, with scrolling only when content exceeds the screen.
+Each menu bar item uses a compact fixed width for its selected font, labels and layout. Changing readings, network units, countdowns or cache state does not move neighboring items. Stacked RAM aligns its label with the numeric digits, excluding `%`. Today's tokens adds an optional `tok` label between its icon and count. Individual-mode detail popovers fit their expanded content up to the screen height; workspace pages scroll within the window.
 
 ## Install
 
 ### Requirements
 
 - **macOS 14 Sonoma or later.**
-- **An installed, signed-in Codex Desktop.** CodexMeter uses its existing account through the installed Codex executable; it does not provide a separate sign-in flow.
+- **The assistant you want to monitor.** Codex and Cursor use their app's existing sign-in. DeepSeek Harness needs readable local session checkpoints. You can use Cursor or DeepSeek Harness without Codex installed.
 - **Apple Silicon** for the prebuilt ZIP and Homebrew cask. On Intel, build from source.
 
 CodexMeter looks for Codex in registered applications and standard installation paths, including supported ChatGPT.app integrations, then falls back to `codex` in `PATH`. Available account fields depend on your installed Codex version and account.
@@ -66,8 +74,8 @@ This is the project's third-party tap, not the official Homebrew Cask repository
 
 ### First launch
 
-1. Look for CodexMeter's items in the menu bar, not the Dock.
-2. Click any item to open details and refresh the readings.
+1. Look for CodexMeter's Focus indicator in the menu bar.
+2. Click it, choose your assistant and open the workspace for details.
 3. Open **Settings** to choose visible metrics, refresh intervals and language. New installations request launch at login once; you can disable it in Settings.
 4. To receive reminders, enable notifications in Settings and grant macOS permission. Keep Automatic Refresh enabled for background monitoring.
 
@@ -87,12 +95,14 @@ See the [data-source reference](docs/usage.md#data-and-refresh-behavior) and [TP
 
 ## Privacy and data flow
 
-- **Account queries:** CodexMeter starts the installed Codex App Server and requests account, quota and usage information. The Codex subprocess uses your existing sign-in and makes its normal service requests. CodexMeter does not read or store authentication tokens, submit prompts, start coding tasks or consume reset credits.
+- **Codex account queries:** CodexMeter starts the installed Codex App Server and requests account, quota and usage information. The Codex subprocess uses your existing sign-in and makes its normal service requests. CodexMeter does not read Codex authentication tokens, submit prompts, start coding tasks or consume reset credits.
+- **Cursor account queries:** Selecting Cursor reads its existing local sign-in through a read-only SQLite connection, then requests usage from `https://cursor.com`. The session is held only for the request, never saved or printed. Protected credentials use standard macOS Keychain access without raising a permission dialog; denied access is shown explicitly. Codex quota windows and Cursor allowance periods are kept separate.
+- **DeepSeek Harness:** Only local projection caches are read. Forked or inherited sessions are excluded from cumulative totals to avoid double counting, and incomplete coverage is marked. No Harness credentials, balance endpoint, inference or price estimate is used.
 - **Local logs:** Token and TPS estimates are derived from local Codex session files. CodexMeter retains derived counters and parsing checkpoints, not prompt or response text. It does not upload conversations, usage counters or project paths.
 - **System metrics:** CPU, GPU, memory and network counters are read locally through macOS APIs. Hardware readings stay in memory; no network traffic contents are inspected.
 - **Optional update checks:** Manual checks, or automatic checks if enabled, fetch public version metadata from GitHub. There is no telemetry, proxy, cloud sync or separate CodexMeter service.
 
-This is not an entirely offline app: live account readings require Codex's service connection. See [storage and privacy details](docs/usage.md#incremental-files-and-privacy), including custom `CODEX_HOME` support.
+Live account readings require the selected service's connection. No assistant conversations, local usage counters or project paths are uploaded by CodexMeter. See [storage and privacy details](docs/usage.md#incremental-files-and-privacy), including custom `CODEX_HOME` support.
 
 ## Build from source
 

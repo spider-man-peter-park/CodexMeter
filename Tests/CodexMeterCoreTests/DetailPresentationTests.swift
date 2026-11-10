@@ -7,6 +7,7 @@ struct DetailPresentationTests {
             .fiveHour: .quota,
             .weekly: .quota,
             .fallback: .quota,
+            .focus: .quota,
             .todayTokens: .today,
             .tps: .speed,
             .cpu: .cpu,

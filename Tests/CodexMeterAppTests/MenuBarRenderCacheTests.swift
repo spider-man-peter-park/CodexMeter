@@ -100,8 +100,8 @@ import Testing
                 let descriptor = MenuBarItem(metric: metric, title: "\(reading)", accessibilityLabel: metric.rawValue)
                 _ = cache.render(descriptor, options: options, remaining: nil, appearance: nativeAppearance)
             }
-            #expect(cache.imageCount == 8)
-            #expect(cache.capacityCount == 8)
+            #expect(cache.imageCount == metrics.count)
+            #expect(cache.capacityCount == metrics.count)
         }
         cache.retainMetrics([.ram])
         #expect(cache.imageCount == 1)

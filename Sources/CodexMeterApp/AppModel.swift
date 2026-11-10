@@ -6,7 +6,7 @@ import SwiftUI
 
 @MainActor
 final class AppModel: ObservableObject {
-    enum DetailSurface: Hashable { case popover, preview }
+    enum DetailSurface: Hashable { case popover, preview, workspace }
 
     @Published var quota: QuotaSnapshot? {
         didSet {
@@ -45,6 +45,25 @@ final class AppModel: ObservableObject {
     @Published var latestUnmeasurable = false
     @Published var loginWarning: String?
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
+    @Published var provider: AssistantProvider {
+        didSet {
+            guard provider != oldValue else { return }
+            defaults.set(provider.rawValue, forKey: "assistantProvider")
+            cancelRecoveryRefresh()
+            providerChanged?(provider)
+            reconcileSystemDetailDemand()
+            if started { refresh() }
+            changed?()
+        }
+    }
+    @Published var menuBarMode: MenuBarMode {
+        didSet {
+            guard menuBarMode != oldValue else { return }
+            defaults.set(menuBarMode.rawValue, forKey: "menuBarMode")
+            reconcileSystemDetailDemand()
+            changed?()
+        }
+    }
     @Published var options: DisplayOptions {
         didSet {
             if fiveHourAvailable == false && options.showFiveHour { options.showFiveHour = false }
@@ -66,6 +85,7 @@ final class AppModel: ObservableObject {
         didSet {
             defaults.set(autoRefresh, forKey: "autoRefresh")
             if !autoRefresh { cancelRecoveryRefresh() }
+            if autoRefresh != oldValue { changed?() }
         }
     }
     @Published var language: AppLanguage {
@@ -76,6 +96,8 @@ final class AppModel: ObservableObject {
     }
     var changed: (() -> Void)?
     var appearanceChanged: (() -> Void)?
+    var providerChanged: ((AssistantProvider) -> Void)?
+    var externalRefreshRequested: ((AssistantProvider) -> Void)?
     let reminders: AppReminders
     let initialLoginPreference: Bool?
 
@@ -127,11 +149,13 @@ final class AppModel: ObservableObject {
                                  "quotaLabelStyle", "countdownStyle", "tpsDecimals", "showTPSLabel"]
         let hasLegacyDisplay = legacyDisplayKeys.contains { defaults.object(forKey: $0) != nil }
         let hasSavedPreferences = (legacyDisplayKeys + ["displaySchemaVersion", "displayOptions", "detailLayout",
-            "refreshOptions", "reminderOptions", "appLanguage", "appAppearance", "autoRefresh", "automaticallyCheckForUpdates"])
+            "refreshOptions", "reminderOptions", "appLanguage", "appAppearance", "autoRefresh", "automaticallyCheckForUpdates", "menuBarMode", "assistantProvider"])
             .contains { defaults.object(forKey: $0) != nil }
         initialLoginPreference = hasSavedPreferences ? nil : AppDefaults.launchAtLogin
         language = AppLanguage(rawValue: defaults.string(forKey: "appLanguage") ?? "") ?? AppDefaults.language
         appearance = AppAppearance(rawValue: defaults.string(forKey: "appAppearance") ?? "") ?? .system
+        menuBarMode = MenuBarMode(rawValue: defaults.string(forKey: "menuBarMode") ?? "") ?? .focus
+        provider = AssistantProvider(rawValue: defaults.string(forKey: "assistantProvider") ?? "") ?? .codex
         detailLayout = defaults.data(forKey: "detailLayout")
             .flatMap { try? JSONDecoder().decode(DetailLayout.self, from: $0) } ?? AppDefaults.detailLayout
         self.readQuota = readQuota
@@ -235,15 +259,16 @@ final class AppModel: ObservableObject {
         timers.forEach { $0.invalidate() }
         timers.removeAll()
         timer(every: refreshOptions.logInterval) { [weak self] in
-            guard let self, self.autoRefresh, !self.sleeping else { return }
+            guard let self, self.autoRefresh, !self.sleeping, self.provider == .codex else { return }
             self.pollLogs()
         }
         timer(every: refreshOptions.quotaInterval) { [weak self] in
             guard let self, self.autoRefresh, !self.sleeping else { return }
-            self.refreshQuota()
+            if self.provider == .codex { self.refreshQuota() }
+            else { self.externalRefreshRequested?(self.provider) }
         }
         timer(every: refreshOptions.accountInterval) { [weak self] in
-            guard let self, self.autoRefresh, !self.sleeping else { return }
+            guard let self, self.autoRefresh, !self.sleeping, self.provider == .codex else { return }
             self.refreshAccountInfo()
         }
         timer(every: refreshOptions.displayInterval) { [weak self] in
@@ -269,7 +294,7 @@ final class AppModel: ObservableObject {
     }
 
     var needsSystemMetrics: Bool {
-        options.showCPU || options.showGPU || options.showRAM || options.showNetworkUpload || options.showNetworkDownload
+        (provider == .codex && menuBarMode == .individual && (options.showCPU || options.showGPU || options.showRAM || options.showNetworkUpload || options.showNetworkDownload))
             || (!visibleDetailSurfaces.isEmpty && [.cpu, .gpu, .ram, .network].contains(selectedDetailSection))
     }
 
@@ -290,7 +315,10 @@ final class AppModel: ObservableObject {
         let changed = next != requestedDetailDemand
         requestedDetailDemand = next
         guard started, !sleeping else { return }
-        guard needsSystemMetrics else { cancelSystemMetrics(); return }
+        guard needsSystemMetrics else {
+            if systemMetrics != nil || systemMetricsTask != nil { cancelSystemMetrics() }
+            return
+        }
         if changed || systemMetrics == nil { pollSystemMetrics() }
     }
 
@@ -371,13 +399,14 @@ final class AppModel: ObservableObject {
 
     func refresh() {
         now = Date()
+        guard provider == .codex else { externalRefreshRequested?(provider); return }
         pollLogs()
         refreshQuota()
         refreshAccountInfo()
     }
 
     private func refreshQuota() {
-        guard !refreshing else { return }
+        guard provider == .codex, !refreshing else { return }
         recoveryQuotaPending = false
         quotaGate.began(at: recoveryClock())
         refreshing = true
@@ -387,6 +416,8 @@ final class AppModel: ObservableObject {
             do {
                 let fresh = try await self.readQuota(Self.codexHome(defaults: self.defaults))
                 guard !Task.isCancelled else { return }
+                // Compare freshness against receipt time, rather than the clock before the request began.
+                self.now = Date()
                 self.quotaGate.finished(success: true)
                 self.recoveryQuotaPending = false
                 self.quota = fresh
@@ -406,7 +437,7 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshAccountInfo() {
-        guard !accountRefreshing else { return }
+        guard provider == .codex, !accountRefreshing else { return }
         recoveryAccountPending = false
         accountGate.began(at: recoveryClock())
         accountRefreshing = true
@@ -490,6 +521,7 @@ final class AppModel: ObservableObject {
 
     func requestRecoveryRefresh() {
         guard started, autoRefresh, !sleeping, pathAvailable else { return }
+        guard provider == .codex else { externalRefreshRequested?(provider); return }
         recoveryQuotaPending = true
         recoveryAccountPending = true
         recoveryDebounceUntil = recoveryClock().addingTimeInterval(3)

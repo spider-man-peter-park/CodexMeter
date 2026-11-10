@@ -157,6 +157,24 @@ public struct LocalDayUsage: Sendable, Equatable {
     public var isPartial = false
     public var hasDesktopLogs = false
     public var logsAvailable = true
+
+    public init(dayStart: Date, timeZoneIdentifier: String, input: Int = 0, output: Int = 0,
+                cachedInput: Int? = 0, reasoningOutput: Int? = 0, responses: Int = 0,
+                updatedAt: Date, isBackfilling: Bool = false, isPartial: Bool = false,
+                hasDesktopLogs: Bool = false, logsAvailable: Bool = true) {
+        self.dayStart = dayStart
+        self.timeZoneIdentifier = timeZoneIdentifier
+        self.input = input
+        self.output = output
+        self.cachedInput = cachedInput
+        self.reasoningOutput = reasoningOutput
+        self.responses = responses
+        self.updatedAt = updatedAt
+        self.isBackfilling = isBackfilling
+        self.isPartial = isPartial
+        self.hasDesktopLogs = hasDesktopLogs
+        self.logsAvailable = logsAvailable
+    }
     public func matches(_ date: Date, calendar: Calendar = .current) -> Bool {
         dayStart == calendar.startOfDay(for: date) && timeZoneIdentifier == calendar.timeZone.identifier
     }

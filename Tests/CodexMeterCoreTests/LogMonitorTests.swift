@@ -32,15 +32,17 @@ struct LogMonitorTests {
         data.append(10)
         return data
     }
-    private func response(_ id: String, end: Int, origin: String = "Codex Desktop") throws -> Data {
+    private func response(_ id: String, end: Int, origin: String = "Codex Desktop", input: Int? = nil) throws -> Data {
         var data = Data()
         data.append(try row(0, "session_meta", ["id": id, "originator": origin, "source": "vscode"]))
         data.append(try row(1, "event_msg", ["type": "task_started", "turn_id": "turn-\(id)"]))
         data.append(try row(1, "turn_context", ["model": "fixture-model"]))
         data.append(try row(2, "response_item", ["type": "message", "role": "user"]))
         data.append(try row(end, "response_item", ["type": "message", "role": "assistant", "id": "item-\(id)"]))
+        var usage = ["output_tokens": 100, "reasoning_output_tokens": 40]
+        if let input { usage["input_tokens"] = input }
         data.append(try row(end, "token_usage_record", ["thread_id": id, "response_id": "response-\(id)",
-            "usage": ["output_tokens": 100, "reasoning_output_tokens": 40]]))
+            "usage": usage]))
         return data
     }
     private func temporaryHome() throws -> URL {
@@ -428,6 +430,159 @@ struct LogMonitorTests {
         await monitor.flush()
         let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: cache)) as? [String: Any])
         #expect((saved["files"] as? [String: Any])?.count == 1)
+    }
+
+    @Test func completeReconciliationReleasesDeletedCursorsAndKeepsRecordedUsage() async throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.appendingPathComponent("sessions/2026/10/28/deleted.jsonl")
+        var data = try response("deleted", end: 6, input: 50)
+        data.append(try row(7, "event_msg", ["type": "token_count", "rate_limits": [
+            "primary": ["used_percent": 63, "window_minutes": 10080]]]))
+        try data.write(to: path)
+        let cache = home.appendingPathComponent("checkpoint.json")
+        let events = FileEvents()
+        let monitor = LogMonitor(home: home, cacheURL: cache, fileEvents: events)
+        let now = try Date.ISO8601FormatStyle().parse("2026-10-28T12:00:00Z")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let original = await monitor.poll(now: now, calendar: calendar)
+        #expect(original.todayUsage?.input == 50)
+        #expect(original.todayUsage?.output == 100)
+        #expect(original.todayUsage?.isPartial == false)
+        await monitor.flush()
+        #expect(try checkpointFiles(cache).count == 1)
+
+        try FileManager.default.removeItem(at: path)
+        events.post(path)
+        _ = await monitor.poll(now: now.addingTimeInterval(2), calendar: calendar)
+        await monitor.flush()
+        #expect(try checkpointFiles(cache).count == 1)
+
+        events.post(mustRescan: true)
+        let cleaned = await monitor.poll(now: now.addingTimeInterval(4), calendar: calendar)
+        await monitor.flush()
+        #expect(try checkpointFiles(cache).isEmpty)
+        #expect(cleaned.latestSample == original.latestSample)
+        #expect(cleaned.latestResponseAt == original.latestResponseAt)
+        #expect(cleaned.cachedQuota == original.cachedQuota)
+        #expect(cleaned.recentSamples == original.recentSamples)
+        #expect(cleaned.todayUsage?.input == 50)
+        #expect(cleaned.todayUsage?.output == 100)
+        #expect(cleaned.todayUsage?.responses == 1)
+        #expect(cleaned.todayUsage?.isPartial == false)
+
+        let restarted = LogMonitor(home: home, cacheURL: cache)
+        let restored = await restarted.poll(now: now.addingTimeInterval(6), calendar: calendar)
+        #expect(restored.latestSample == original.latestSample)
+        #expect(restored.todayUsage?.output == 100)
+        try response("replacement", end: 9, input: 100).write(to: path)
+        events.post(path)
+        let replaced = await monitor.poll(now: now.addingTimeInterval(8), calendar: calendar)
+        #expect(replaced.latestSample?.id == "response-replacement")
+        #expect(replaced.todayUsage?.input == 150)
+        #expect(replaced.todayUsage?.output == 200)
+        #expect(replaced.todayUsage?.responses == 2)
+    }
+
+    @Test func incompleteReconciliationRetainsUnreachableCursors() async throws {
+        let home = try temporaryHome()
+        let directory = home.appendingPathComponent("sessions/2026/10/28")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: home)
+        }
+        let path = directory.appendingPathComponent("retained.jsonl")
+        try response("retained", end: 6, input: 50).write(to: path)
+        let cache = home.appendingPathComponent("checkpoint.json")
+        let events = FileEvents()
+        let monitor = LogMonitor(home: home, cacheURL: cache, fileEvents: events)
+        let now = Date()
+        let original = await monitor.poll(now: now)
+        await monitor.flush()
+        let initialFiles = try checkpointFiles(cache)
+        #expect(initialFiles.count == 1)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: directory.path)
+        events.post(mustRescan: true)
+        let failed = await monitor.poll(now: now.addingTimeInterval(2))
+        await monitor.flush()
+        #expect(try checkpointFiles(cache).keys.sorted() == initialFiles.keys.sorted())
+        #expect(failed.latestSample == original.latestSample)
+        #expect(failed.todayUsage?.logsAvailable == false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        #expect((await monitor.poll(now: now.addingTimeInterval(4))).latestSample == original.latestSample)
+        await monitor.flush()
+        #expect(try checkpointFiles(cache).keys.sorted() == initialFiles.keys.sorted())
+    }
+
+    @Test func restoredCleanupIsAutomaticallySavedWithoutNewLogBytes() async throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.appendingPathComponent("archived_sessions/restored-cleanup.jsonl")
+        try response("restored-cleanup", end: 6, input: 50).write(to: path)
+        let cache = home.appendingPathComponent("checkpoint.json")
+        let original = LogMonitor(home: home, cacheURL: cache)
+        let before = await original.poll()
+        await original.flush()
+        #expect(try checkpointFiles(cache).count == 1)
+        try FileManager.default.removeItem(at: path)
+
+        let restored = LogMonitor(home: home, cacheURL: cache)
+        #expect((await restored.poll()).latestSample == before.latestSample)
+        // A cleanup-only poll must persist on the normal save schedule, without a manual flush.
+        #expect(try checkpointFiles(cache).isEmpty)
+    }
+
+    @Test func failedCheckpointSaveRetriesOnAnIdlePollAfterTheThrottle() async throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.appendingPathComponent("archived_sessions/save-retry.jsonl")
+        try response("save-retry", end: 6, input: 50).write(to: path)
+        let parent = home.appendingPathComponent("blocked-cache")
+        try Data().write(to: parent)
+        let cache = parent.appendingPathComponent("checkpoint.json")
+        let monitor = LogMonitor(home: home, cacheURL: cache, fileEvents: FileEvents())
+        let now = Date()
+        let original = await monitor.poll(now: now)
+        #expect(!FileManager.default.fileExists(atPath: cache.path))
+
+        try FileManager.default.removeItem(at: parent)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: false)
+        _ = await monitor.poll(now: now.addingTimeInterval(1))
+        #expect(!FileManager.default.fileExists(atPath: cache.path))
+        // Real time verifies that retries obey the production disk-write throttle without new log bytes.
+        try await Task.sleep(for: .seconds(10.1))
+        #expect((await monitor.poll(now: now.addingTimeInterval(12))).latestSample == original.latestSample)
+        #expect(FileManager.default.fileExists(atPath: cache.path))
+        #expect(try checkpointFiles(cache).count == 1)
+    }
+
+    @Test func deletedUnsupportedCursorKeepsTodayPartialUntilTheNextDay() async throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.appendingPathComponent("archived_sessions/unsupported.jsonl")
+        try response("unsupported", end: 6).write(to: path)
+        let cache = home.appendingPathComponent("checkpoint.json")
+        let events = FileEvents()
+        let monitor = LogMonitor(home: home, cacheURL: cache, fileEvents: events)
+        let now = try Date.ISO8601FormatStyle().parse("2026-10-28T12:00:00Z")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        #expect((await monitor.poll(now: now, calendar: calendar)).todayUsage?.isPartial == true)
+        try FileManager.default.removeItem(at: path)
+        events.post(mustRescan: true)
+        #expect((await monitor.poll(now: now.addingTimeInterval(2), calendar: calendar)).todayUsage?.isPartial == true)
+        await monitor.flush()
+        #expect(try checkpointFiles(cache).count == 1)
+        events.post(mustRescan: true)
+        #expect((await monitor.poll(now: now.addingTimeInterval(86400), calendar: calendar)).todayUsage?.isPartial == false)
+        await monitor.flush()
+        #expect(try checkpointFiles(cache).isEmpty)
+    }
+
+    private func checkpointFiles(_ url: URL) throws -> [String: [String: Any]] {
+        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        return try #require(saved["files"] as? [String: [String: Any]])
     }
 
     @Test func symlinkFilesAndDirectoriesAreSkippedEvenWithCachedListing() async throws {

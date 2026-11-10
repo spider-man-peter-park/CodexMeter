@@ -20,6 +20,7 @@ import Testing
         for initialization in 0..<2 {
             let model = AppModel(defaults: defaults, notificationCenter: center)
             #expect(model.initialLoginPreference == (initialization == 0 ? true : nil))
+            #expect(model.menuBarMode == .focus)
             #expect(model.options == (try JSONDecoder().decode(DisplayOptions.self, from: capturedDisplay)))
             #expect(model.refreshOptions == RefreshOptions(quotaSeconds: 180, logSeconds: 2, displaySeconds: 60, accountSeconds: 900))
             #expect(model.detailLayout.order == [.quota, .today, .speed, .account, .cpu, .gpu, .ram, .network, .settings])

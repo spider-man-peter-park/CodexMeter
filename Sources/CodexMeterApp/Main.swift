@@ -1,5 +1,6 @@
 import AppKit
 import CodexMeterCore
+import Combine
 import Foundation
 import ServiceManagement
 import SwiftUI
@@ -13,9 +14,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var anchorMetric: MenuBarMetric?
     private var contextMenuMetric: MenuBarMetric?
     private let popover = NSPopover()
-    private let model = AppModel()
+    private let model: AppModel
     private let updates = AppUpdates()
+    private let usageStore = AssistantUsageStore(preview: CommandLine.arguments.contains("--ui-preview-fixtures"))
     private var settingsController: NSWindowController?
+    private var workspaceController: NSWindowController?
+    private let workspaceNavigation = WorkspaceNavigation()
+    private var workspaceObservation: AnyCancellable?
+    private var focusController: NSHostingController<ProviderPopoverView>?
+    private var workspaceFrame: NSRect?
     private var detailPreviewController: NSWindowController?
     private var detailPreviewSizeObservation: NSKeyValueObservation?
     private let settingsNavigation = SettingsNavigationState()
@@ -30,6 +37,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var relocatingPopover = false
     private var interruptionMonitor: InterruptionMonitor?
 
+    override init() {
+        if CommandLine.arguments.contains("--ui-preview-fixtures") {
+            model = AppModel(readQuota: { _ in UIPreviewFixtures.quota(at: Date()) },
+                readAccount: { _ in UIPreviewFixtures.account(at: Date()) })
+        } else {
+            model = AppModel()
+        }
+        super.init()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
         model.appearanceChanged = { [weak self] in self?.applyAppearance() }
@@ -41,6 +58,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         popover.delegate = self
         popover.animates = true
         model.changed = { [weak self] in self?.scheduleStatusItemUpdate() }
+        usageStore.changed = { [weak self] in self?.scheduleStatusItemUpdate() }
+        model.externalRefreshRequested = { [weak self] in self?.usageStore.refresh($0) }
+        model.providerChanged = { [weak self] provider in
+            guard let self else { return }
+            self.workspaceNavigation.destination = .overview
+            self.selectWorkspaceDestination(.overview)
+            self.usageStore.refresh(provider)
+        }
+        workspaceObservation = workspaceNavigation.$destination.removeDuplicates().sink { [weak self] destination in
+            self?.selectWorkspaceDestination(destination)
+        }
         appearanceObservation = NSApplication.shared.observe(\.effectiveAppearance) { [weak self] _, _ in
             Task { @MainActor in
                 self?.popover.appearance = NSApplication.shared.effectiveAppearance
@@ -48,20 +76,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             }
         }
         updateStatusItems()
-        model.applyInitialLoginPreference()
-        model.reminders.activateSystemNotifications { [weak self] in
-            Task { @MainActor in
-                guard let self, let button = self.firstButton else { return }
-                self.showPopover(button)
+        if CommandLine.arguments.contains("--ui-preview-fixtures") {
+            UIPreviewFixtures.apply(to: model)
+            if model.provider != .codex { usageStore.refresh(model.provider) }
+        } else {
+            model.applyInitialLoginPreference()
+            model.reminders.activateSystemNotifications { [weak self] in
+                Task { @MainActor in
+                    guard let self else { return }
+                    // These alerts describe Codex; never open another assistant's unrelated readings.
+                    self.model.provider = .codex
+                    self.openWorkspace(.detail(.quota))
+                }
             }
+            model.start()
+            interruptionMonitor = InterruptionMonitor(sleep: { [weak self] in self?.model.systemWillSleep() },
+                wake: { [weak self] in self?.model.systemDidWake(canRefresh: $0) },
+                connection: { [weak self] available, recovered in self?.model.networkPathChanged(available: available, recovered: recovered) })
+            interruptionMonitor?.start()
+            updates.start()
         }
-        model.start()
-        interruptionMonitor = InterruptionMonitor(sleep: { [weak self] in self?.model.systemWillSleep() },
-            wake: { [weak self] in self?.model.systemDidWake(canRefresh: $0) },
-            connection: { [weak self] available, recovered in self?.model.networkPathChanged(available: available, recovered: recovered) })
-        interruptionMonitor?.start()
-        updates.start()
-        if CommandLine.arguments.contains("--ui-preview-detail-window") {
+        if CommandLine.arguments.contains("--show-workspace") {
+            DispatchQueue.main.async { [weak self] in self?.openWorkspace() }
+        } else if CommandLine.arguments.contains("--ui-preview-detail-window") {
             DispatchQueue.main.async { [weak self] in self?.showDetailPreview() }
         } else if CommandLine.arguments.contains("--show-settings") {
             DispatchQueue.main.async { [weak self] in self?.showSettings(nil) }
@@ -120,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         interruptionMonitor?.stop()
         model.stop()
         updates.stop()
+        usageStore.stop()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -130,7 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag, let button = firstButton { showPopover(button) }
+        if !flag { openWorkspace() }
         return true
     }
 
@@ -145,15 +183,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func popoverDidClose(_ notification: Notification) {
         guard !relocatingPopover, !popoverRequested, !popover.isShown else { return }
         model.setDetailPresented(false, on: .popover)
-        popoverContent.releaseIfHidden()
+        releasePopoverContent()
     }
 
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         if window === detailPreviewController?.window { model.setDetailPresented(false, on: .preview) }
+        if window === workspaceController?.window { model.setDetailPresented(false, on: .workspace) }
+        let originalFrame = window.frame
+        let originalContentSize = window.contentLayoutRect.size
+        if window === workspaceController?.window { workspaceFrame = originalFrame }
         DispatchQueue.main.async { [weak self, weak window] in
             guard let self, let window, !window.isVisible else { return }
-            if window === self.settingsController?.window {
+            if window === self.workspaceController?.window {
+                window.contentViewController = nil
+                window.contentView = NSView(frame: NSRect(origin: .zero, size: originalContentSize))
+                window.minSize = NSSize(width: 780, height: 540)
+                window.setFrame(originalFrame, display: false)
+            } else if window === self.settingsController?.window {
                 // Keep window geometry and navigation state, but release the hidden SwiftUI graph.
                 window.contentViewController = nil
                 window.contentView = NSView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
@@ -166,8 +213,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
     }
 
+    func windowDidMiniaturize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === workspaceController?.window else { return }
+        model.setDetailPresented(false, on: .workspace)
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === workspaceController?.window else { return }
+        dismissPopover()
+        selectWorkspaceDestination(workspaceNavigation.destination)
+        model.setDetailPresented(true, on: .workspace)
+    }
+
     private var firstButton: NSStatusBarButton? {
-        [MenuBarMetric.tps, .todayTokens, .weekly, .fiveHour, .cpu, .gpu, .ram, .network, .fallback]
+        [MenuBarMetric.focus, .tps, .todayTokens, .weekly, .fiveHour, .cpu, .gpu, .ram, .network, .fallback]
             .compactMap { statusItems[$0]?.button }.first
     }
 
@@ -186,8 +245,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             installedLanguage = model.language
             installApplicationMenu()
             settingsController?.window?.title = L10n.text("CodexMeter Settings")
+            workspaceController?.window?.title = AppMetadata.name
         }
-        let descriptors = MenuBarFormatter.items(quota: model.quota, sample: model.sample,
+        let descriptors = model.provider != .codex
+            ? [MenuBarFormatter.providerItem(usageStore.result(for: model.provider), autoRefresh: model.autoRefresh)]
+            : model.menuBarMode == .focus
+            ? [MenuBarFormatter.focusItem(quota: model.quota, warning: model.quotaWarning,
+                autoRefresh: model.autoRefresh, now: model.now, refreshInterval: model.refreshOptions.quotaInterval)]
+            : MenuBarFormatter.items(quota: model.quota, sample: model.sample,
             options: model.options, todayUsage: model.localDayUsage, now: model.now, stale: model.quotaWarning != nil,
             systemMetrics: model.systemMetrics, systemNow: model.systemMetricsNow)
         let needed = Set(descriptors.map(\.metric))
@@ -215,6 +280,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             guard let button = statusItems[descriptor.metric]?.button else { continue }
             let window: QuotaWindow?
             switch descriptor.metric {
+            case .focus:
+                window = model.provider == .codex ? FocusSummary(quota: model.quota, warning: model.quotaWarning,
+                    automaticRefresh: model.autoRefresh, now: model.now,
+                    refreshInterval: model.refreshOptions.quotaInterval).window : nil
             case .fiveHour: window = model.quota?.fiveHour
             case .weekly: window = model.quota?.weekly
             default: window = nil
@@ -227,7 +296,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 if result.changed { StatusItemAppearance.apply(result.image, to: item) }
             }
             var tooltip = descriptor.accessibilityLabel + L10n.text(" · Click for details")
-            if descriptor.metric == .tps {
+            if model.provider != .codex {
+                if let snapshot = usageStore.result(for: model.provider).snapshot {
+                    tooltip += "\n" + L10n.text("Checked \(snapshot.sampledAt.formatted(.dateTime.locale(L10n.locale)))")
+                }
+            } else if descriptor.metric == .tps {
                 if let sample = model.sample { tooltip += L10n.text("\nResponse completed: \(sample.completedAt.formatted(.dateTime.locale(L10n.locale)))") }
                 if model.latestUnmeasurable { tooltip += L10n.text("\nShowing the last response with reliable timing") }
             } else if descriptor.metric == .todayTokens {
@@ -262,6 +335,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             return
         }
         let metric = MenuBarMetric.allCases[sender.tag]
+        if workspaceController?.window?.isVisible == true {
+            openWorkspace(metric == .focus ? .overview : .detail(metric.detailSection))
+            return
+        }
         if popover.isShown || popoverRequested {
             if anchorMetric == metric { dismissPopover(); return }
             closePopoverImmediately(preservingIntent: true)
@@ -309,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         anchorMetric = nil
         cancelScheduledPopover()
         model.setDetailPresented(false, on: .popover)
-        if !popover.isShown { popoverContent.releaseIfHidden() }
+        if !popover.isShown { releasePopoverContent() }
         if let outsideMouseMonitor {
             NSEvent.removeMonitor(outsideMouseMonitor)
             self.outsideMouseMonitor = nil
@@ -323,6 +400,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         pendingPopoverWork = nil
     }
 
+    private func releasePopoverContent() {
+        guard !popover.isShown else { return }
+        popoverContent.releaseIfHidden()
+        focusController = nil
+    }
+
     private func monitorOutsideClicks() {
         guard outsideMouseMonitor == nil else { return }
         // Mouse-only global monitoring needs no Accessibility permission and leaves in-app menus alone.
@@ -332,6 +415,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func showPopover(_ button: NSStatusBarButton) {
+        if workspaceController?.window?.isVisible == true {
+            let metric = MenuBarMetric.allCases[button.tag]
+            openWorkspace(metric == .focus ? .overview : .detail(metric.detailSection))
+            return
+        }
         cancelScheduledPopover()
         popoverRequested = true
         anchorMetric = MenuBarMetric.allCases[button.tag]
@@ -340,13 +428,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         model.selectedQuotaMetric = [.fiveHour, .weekly].contains(metric) ? metric : nil
         monitorOutsideClicks()
         let screenHeight = button.window?.screen?.visibleFrame.height ?? 800
-        popoverContent.prepare(panelHeight: max(180, screenHeight - 60))
+        if metric == .focus {
+            popoverContent.releaseIfHidden()
+            let controller = NSHostingController(rootView: ProviderPopoverView(model: model, usage: usageStore,
+                onOpenWorkspace: { [weak self] in self?.openWorkspace($0) },
+                onOpenSettings: { [weak self] in self?.showSettings(nil) },
+                onOpenAbout: { [weak self] in self?.showAbout(nil) }))
+            controller.sizingOptions = [.preferredContentSize]
+            focusController = controller
+            popover.contentViewController = controller
+        } else {
+            focusController = nil
+            popoverContent.prepare(panelHeight: max(180, screenHeight - 60))
+        }
         // Match app appearance rather than the menu bar anchor's wallpaper-dependent appearance.
         popover.appearance = NSApplication.shared.effectiveAppearance
         // A status-item popover must not raise the app's background settings window.
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
-        model.setDetailPresented(popover.isShown, on: .popover)
+        model.setDetailPresented(popover.isShown && metric != .focus, on: .popover)
         if !popover.isShown { finishPopoverInteraction() }
         updateStatusItems()
     }
@@ -380,6 +480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             item.target = self
             menu.addItem(item)
         }
+        add(L10n.text("Open workspace"), #selector(showWorkspace(_:)), key: "0")
         add(L10n.text("About CodexMeter"), #selector(showAbout(_:)))
         menu.addItem(.separator())
         add(L10n.text("Settings…"), #selector(showSettings(_:)), key: ",")
@@ -390,6 +491,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         menu.addItem(.separator())
         add(L10n.text("Quit CodexMeter"), #selector(quit(_:)), key: "q")
         return menu
+    }
+
+    @objc private func showWorkspace(_ sender: Any?) { openWorkspace() }
+
+    private func selectWorkspaceDestination(_ destination: WorkspaceDestination) {
+        switch destination {
+        case .overview: model.selectedDetailSection = .quota
+        case .detail(let section): model.selectedDetailSection = section
+        }
+        model.selectedQuotaMetric = nil
+    }
+
+    private func openWorkspace(_ destination: WorkspaceDestination? = nil) {
+        dismissPopover()
+        if let destination { workspaceNavigation.destination = destination }
+        selectWorkspaceDestination(workspaceNavigation.destination)
+        if workspaceController == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 940, height: 700),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            window.title = AppMetadata.name
+            window.delegate = self
+            window.minSize = NSSize(width: 780, height: 540)
+            window.isReleasedWhenClosed = false
+            window.setFrameAutosaveName("CodexMeter.Workspace")
+            if !window.setFrameUsingName("CodexMeter.Workspace") { window.center() }
+            workspaceController = NSWindowController(window: window)
+        }
+        if let window = workspaceController?.window, window.contentViewController == nil {
+            let frame = WorkspaceWindowGeometry.restored(workspaceFrame ?? window.frame,
+                on: window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800))
+            let controller = NSHostingController(rootView: WorkspaceView(model: model, updates: updates, usage: usageStore,
+                navigation: workspaceNavigation,
+                onOpenSettings: { [weak self] in self?.showSettings(nil) },
+                onOpenAbout: { [weak self] in self?.showAbout(nil) }))
+            // A workspace follows its window, never the unbounded height of its scroll contents.
+            controller.sizingOptions = []
+            (controller.view as? NSHostingView<WorkspaceView>)?.sizingOptions = []
+            window.contentViewController = controller
+            window.minSize = NSSize(width: 780, height: 540)
+            window.setFrame(frame, display: false)
+            workspaceFrame = frame
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        if workspaceController?.window?.isMiniaturized == true { workspaceController?.window?.deminiaturize(nil) }
+        workspaceController?.showWindow(nil)
+        workspaceController?.window?.makeKeyAndOrderFront(nil)
+        model.setDetailPresented(true, on: .workspace)
     }
 
     @objc private func showSettings(_ sender: Any?) {
@@ -452,6 +600,15 @@ enum StatusItemMetadata {
 @main
 struct CodexMeterMain {
     @MainActor static func main() {
+        if let flag = CommandLine.arguments.firstIndex(of: "--diagnose-provider"),
+           CommandLine.arguments.indices.contains(flag + 1),
+           let provider = AssistantProvider(rawValue: CommandLine.arguments[flag + 1]), provider != .codex {
+            Task {
+                await ProviderDiagnostics.run(provider)
+                exit(0)
+            }
+            dispatchMain()
+        }
         if CommandLine.arguments.contains("--verify-resources") {
             guard let coreURL = Bundle.main.url(forResource: "CodexMeter_CodexMeterCore", withExtension: "bundle"),
                   L10n.resourceBundleURL.standardizedFileURL == coreURL.standardizedFileURL,
@@ -492,6 +649,16 @@ struct CodexMeterMain {
         if CommandLine.arguments.contains("--ui-preview-english") {
             var previewArguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
             previewArguments["appLanguage"] = "en"
+            UserDefaults.standard.setVolatileDomain(previewArguments, forName: UserDefaults.argumentDomain)
+        }
+        if CommandLine.arguments.contains("--ui-preview-chinese") {
+            var previewArguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            previewArguments["appLanguage"] = "zh-Hans"
+            UserDefaults.standard.setVolatileDomain(previewArguments, forName: UserDefaults.argumentDomain)
+        }
+        if CommandLine.arguments.contains("--ui-preview-fixtures") {
+            var previewArguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            previewArguments["codexHome"] = "/private/tmp/codexmeter-preview-empty"
             UserDefaults.standard.setVolatileDomain(previewArguments, forName: UserDefaults.argumentDomain)
         }
         if CommandLine.arguments.contains("--ui-preview-all-sections"),
@@ -591,9 +758,14 @@ struct CodexMeterMain {
             }
             output["accountUsage"] = account
         }
-        output["menuItems"] = MenuBarFormatter.items(quota: quota, sample: logs.latestSample,
-            options: AppModel().options, todayUsage: logs.todayUsage,
-            systemMetrics: systemMetrics).map { ["metric": $0.metric.rawValue, "title": $0.title] }
+        let preferences = AppModel()
+        output["menuBarMode"] = preferences.menuBarMode.rawValue
+        let items = preferences.menuBarMode == .focus
+            ? [MenuBarFormatter.focusItem(quota: quota, warning: nil, autoRefresh: preferences.autoRefresh,
+                now: Date(), refreshInterval: preferences.refreshOptions.quotaInterval)]
+            : MenuBarFormatter.items(quota: quota, sample: logs.latestSample, options: preferences.options,
+                todayUsage: logs.todayUsage, systemMetrics: systemMetrics)
+        output["menuItems"] = items.map { ["metric": $0.metric.rawValue, "title": $0.title] }
         if let encoded = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .prettyPrinted]),
            let text = String(data: encoded, encoding: .utf8) { print(text) }
     }

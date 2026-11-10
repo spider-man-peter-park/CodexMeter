@@ -13,6 +13,8 @@ final class AppSettingsObservation: ObservableObject {
         self.model = model
         // Settings observe preference changes, independently of live metric refreshes.
         let changes: [AnyPublisher<Void, Never>] = [
+            model.$provider.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$menuBarMode.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
             model.$options.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
             model.$detailLayout.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
             model.$refreshOptions.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
@@ -166,6 +168,12 @@ struct SettingsContent: View {
     private var appearanceSettings: some View {
         settingsGroup(.appearance) {
             VStack(alignment: .leading, spacing: 12) {
+                segmentedPicker(L10n.text("Menu bar mode"), selection: settings.binding(\.menuBarMode)) {
+                    Text(L10n.text("Focus")).tag(MenuBarMode.focus)
+                    Text(L10n.text("Individual metrics")).tag(MenuBarMode.individual)
+                }
+                note(L10n.text("Focus keeps one quota indicator in the menu bar. Individual metrics restores your saved metric choices."))
+                Divider()
                 HStack(spacing: 8) {
                     ForEach(DisplayPreset.allCases, id: \.self) { preset in
                         Button(L10n.lookup(preset.rawValue.capitalized)) { model.options.applyPreset(preset) }
@@ -209,6 +217,12 @@ struct SettingsContent: View {
     private var layoutSettings: some View {
         settingsGroup(.metrics) {
             VStack(alignment: .leading, spacing: 12) {
+                if model.menuBarMode == .focus {
+                    note(L10n.text("These choices apply to Individual metrics mode. Your preferences are kept while Focus is active."))
+                    Button(L10n.text("Switch to Individual metrics")) { model.menuBarMode = .individual }
+                        .buttonStyle(.bordered)
+                    Divider()
+                }
                 if model.fiveHourAvailable != false {
                     metricSettings(L10n.text("Show 5-hour quota"), isOn: settings.binding(\.options.showFiveHour),
                                    detailsTitle: L10n.text("Quota display options")) {

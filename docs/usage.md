@@ -4,9 +4,21 @@
 
 This guide preserves the detailed configuration, data-source and troubleshooting reference. For a quick introduction and installation, start with the [README](../README.md).
 
-A small, native macOS menu bar companion for **OpenAI Codex Desktop**. Swift + SwiftUI + AppKit; no Electron, service, database, API key, or third-party runtime dependencies.
+A native macOS companion for **Codex, Cursor and DeepSeek Harness**. Swift + SwiftUI + AppKit; no Electron, separate database service, extra API key, or third-party runtime dependencies.
 
-The menu bar supports **eight independent native items**: two quota windows, TPS, today's local tokens, CPU, GPU, RAM and network. Default examples:
+## Assistant sources
+
+The source picker in the overview and workspace switches between Codex, Cursor and DeepSeek Harness. Each source has its own data and state; selecting one never combines its counters with another. System metrics always describe this Mac.
+
+- **Codex:** the existing App Server quota/account reads, local daily token ledger and response timing remain available. Independent menu bar metrics and quota reminders currently apply to Codex.
+- **Cursor:** reads the local app sign-in from `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` without modifying the database. Requests go only to Cursor's official HTTPS origin. Unified accounts use a reported weekly pool; legacy accounts use their reported billing cycle. USD values describe included allowance consumption, not an invoice or additional payment. Missing caps and incompatible responses never become invented zero usage. Sign in through Cursor when a session is missing or expired; protected credentials can return an explicit permission state.
+- **DeepSeek Harness:** reads `~/.dsh/storages/session_projcache/sessions/*.json`. The current adapter supports cache wrapper 7, token row 2 and session-stat row 1. Totals cover supported non-forked sessions; seeded/inherited checkpoints are excluded and coverage is marked partial. Cumulative tokens are not assigned to today from a file timestamp. Decode speed is weighted across supported session decode intervals, and model time is cumulative. Neither value is the latest-response TPS used by Codex. Checkpoints may lag behind the live app; fees and account balances are not inferred. Files are size-bounded and cached as scalar measurements, without retaining conversation contents.
+
+The implementation follows [Cursor's current usage model](https://cursor.com/help/models-and-usage/usage-limits) and the DeepSeek Harness [cache schema](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-projection-cache/src/spec.ts), [token projection](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/token-meter/src/usage-projection.ts) and [session timing definition](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-stats/src/types.ts).
+
+The default **Focus mode** uses one stable source indicator and a compact overview. For Codex, its `5h` or `7d` label identifies the reported window with the lowest remaining percentage. Cursor shows `Cu` with remaining allowance, or reported allowance consumed when no percentage is available; DeepSeek Harness shows `DS` with cumulative local tokens. Open the workspace for a resizable window with permanent navigation, or use Command-0 to reopen it. The workspace remembers its last module while the app remains running; changing source returns to Overview. Closing or minimizing a system detail stops its hardware demand in Focus mode.
+
+In **Settings → Menu bar appearance → Individual metrics**, the menu bar supports **eight independent native items**: two quota windows, TPS, today's local tokens, CPU, GPU, RAM and network. Existing choices are preserved when switching modes. Examples:
 
 | Item | Text |
 | --- | --- |
@@ -51,17 +63,17 @@ Selected images never contain a custom background, preventing a second capsule i
 
 The panel closes when you click another application or switch away, including after editing settings. Pending anchor changes are cancelled on dismissal so changing metric visibility cannot reopen it after an outside click.
 
-Clicking any menu bar item also refreshes quota, account statistics and local TPS, even with automatic refresh turned off. In-flight reads are reused rather than overlapped. Accounts without a reported 5-hour window omit that row in the details. The TPS layout can be Inline or Stacked, with a small TPS label above a larger number; its precision and label visibility remain independent settings. TPS reserves three integer digits (999 or 999.9 with decimals) and uses 2 pt horizontal insets in Compact spacing, 4 pt in Comfortable spacing. Its width stays fixed for changing readings; values beyond that reservation retain full hover/accessibility/detail values and may be visually ellipsized.
+Clicking a menu bar item refreshes the selected source, even with automatic refresh turned off. For Codex this includes quota, account statistics and local TPS; other sources refresh their own reader. In-flight reads are reused rather than overlapped. Accounts without a reported 5-hour window omit that row in the details. The TPS layout can be Inline or Stacked, with a small TPS label above a larger number; its precision and label visibility remain independent settings. TPS reserves three integer digits (999 or 999.9 with decimals) and uses 2 pt horizontal insets in Compact spacing, 4 pt in Comfortable spacing. Its width stays fixed for changing readings; values beyond that reservation retain full hover/accessibility/detail values and may be visually ellipsized.
 
 Missing data is `—`; a window absent from an otherwise valid account response is `N/A`. `*` marks cached or stale quota. An account with only weekly quota stays weekly-only. Version 0.2 migrates the original compact/full preference to independent controls and initially selects AI labels with countdowns enabled.
 
 ## Install and run
 
-Version 0.4.1 bundles the conditional five-hour controls, portable app resource lookup for Alfred launches, single native selected background, compact Today totals, stacked-square token item and optional TPS lightning icon. Existing preferences are retained; the two new menu bar options default to on until explicitly disabled.
+Version 0.6.0 adds the Focus workspace and independent Codex, Cursor and DeepSeek Harness sources while retaining the optional individual menu bar items and saved display preferences.
 
-Requires macOS 14 or later and an already signed-in Codex Desktop installation. The locally built release is for Apple Silicon; build from source on an Intel Mac. Codex may be installed as Codex.app or integrated in ChatGPT.app. CodexMeter checks registered applications and standard install paths before falling back to `codex` in PATH.
+Requires macOS 14 or later and the assistant you want to monitor. Codex and Cursor need their existing app sign-in; DeepSeek Harness needs readable local session checkpoints. Cursor and DeepSeek Harness work without Codex installed. Published binaries target Apple Silicon; build from source on an Intel Mac. For the Codex source, Codex may be installed as Codex.app or integrated in ChatGPT.app. CodexMeter checks registered applications and standard install paths before falling back to `codex` in PATH.
 
-Download [CodexMeter-macOS-arm64.zip](https://github.com/spider-man-peter-park/CodexMeter/raw/refs/heads/main/dist/CodexMeter-macOS-arm64.zip) and unzip it, move `CodexMeter.app` into `/Applications`, then open it. It has no Dock icon or main window. This MVP is ad-hoc signed, not Apple notarized; building locally is the most direct option if macOS blocks a downloaded copy. For a downloaded build, use the standard macOS Privacy & Security “Open Anyway” flow only if you trust this repository. The app requests no Accessibility, Screen Recording or network interception permissions.
+Download [CodexMeter-macOS-arm64.zip](https://github.com/spider-man-peter-park/CodexMeter/raw/refs/heads/main/dist/CodexMeter-macOS-arm64.zip) and unzip it, move `CodexMeter.app` into `/Applications`, then open it. It runs in the menu bar without a Dock icon and offers a workspace window on demand. The app is ad-hoc signed, not Apple notarized; building locally is the most direct option if macOS blocks a downloaded copy. For a downloaded build, use the standard macOS Privacy & Security “Open Anyway” flow only if you trust this repository. The app requests no Accessibility, Screen Recording or network interception permissions.
 
 ### Homebrew
 
@@ -101,9 +113,9 @@ The Subscription row displays the plan identifier reported by Codex with a reada
 
 ### Detail panel layout
 
-The detail header uses “Know your limits. Keep your focus.” and omits the version badge; the version remains available in About. Opening details from a menu bar item does not activate a covered Settings window. The current subscription appears as a distinct nameplate. Reset credits sit at the bottom of Plan limits with their count/expiry summary and all returned details visible. Today · this Mac shows the local total tokens and usage-record count followed by the account’s latest seven reported dates; Input and Output breakdowns are omitted, and account totals are never added to the local estimate. The local date/timezone, estimate badges, token-detail rows, update time and account-report status rows are omitted from this compact card. Scope and partial-estimate information remains in hover help. Account usage keeps lifetime/streak statistics and shows all returned daily token history in two columns. Longer explanations and local estimate qualifiers are available through hover help; cached and unavailable states retain brief status labels.
+The overview uses “Know your limits. Keep your focus.” and omits the version badge; the version remains available in About. Opening details from a menu bar item does not activate a covered Settings window. The current subscription appears as a distinct nameplate. Reset credits sit at the bottom of Plan limits with their count/expiry summary and all returned details visible. Today · this Mac shows local total tokens, Input and Output, usage-record count and partial-estimate qualifiers. Account usage has the latest seven reported dates, lifetime/streak statistics and all returned daily token history in two columns. Account dates and totals stay separate from the local daily estimate. Cached, paused, unavailable and unreliable timing states have visible explanations.
 
-Detail pages are 480 pt wide and resize to their actual content height, keeping the header and footer visible. Reset credits, daily history and inline settings are fully expanded. Scrolling is available only when the complete content exceeds the screen height.
+The Focus quick overview is 392 pt wide. The workspace starts around 940×700 pt, supports resizing and keeps its sidebar, page header and Settings action fixed while page content scrolls. In Individual metrics mode, detail popovers are 480 pt wide and fit their expanded content up to the available screen height. Reset credits, daily history and inline settings remain expanded.
 
 The Detail panel layout category and inline controls have been removed from Settings. Existing saved navigation order and visibility remain in effect; the Other details menu still switches between enabled modules. A menu bar click always opens its matching detail independently of this menu. The fixed footer's Settings button and Command-, remain available, and monitoring/reminders retain their own settings.
 
@@ -123,11 +135,11 @@ Quota alerts can monitor the 5-hour and 7-day windows independently. Choose 20% 
 
 Reset-credit reminders support three days, one day, or both before expiry. Only cards explicitly reported as available with a known future expiry are eligible; unknown status, missing detail rows and count-only responses never produce guessed reminders. Fresh authoritative reads cancel scheduled notifications for used, missing or expired cards. Disabling expiry reminders cancels their pending notifications. Already scheduled notifications can be delivered by macOS while the app is closed or offline, so their wording explicitly refers to the last reported availability; a card consumed elsewhere cannot be discovered until a new successful read.
 
-Enable Automatic Refresh for background quota monitoring. Notification clicks open the detail panel. Notification content excludes card IDs, account identifiers, session paths and conversation content. Notifications are local; no push server or account credentials are required.
+Enable Automatic Refresh for background quota monitoring. Codex notification clicks switch to the Codex quota workspace, even when another assistant was selected. Notification content excludes card IDs, account identifiers, session paths and conversation content. Notifications are local; no push server or account credentials are required.
 
 ### Wake and network recovery
 
-With Automatic Refresh enabled, macOS wake and a network-path transition from unavailable to available request a single calibration of quota, account statistics and local responses. The initial network-path callback does not duplicate the launch refresh. Events within three seconds are merged, in-flight reads are reused, and recent attempts retain minimum intervals of 60 seconds for quota and 300 seconds for account statistics. Repeated failures extend the recovery cooldown exponentially, capped at 15 and 30 minutes respectively. This adds no network reachability polling or repeated automatic retry loop, and a satisfied network path is not a guarantee that the Codex service is reachable.
+With Automatic Refresh enabled and Codex selected, macOS wake and a network-path transition from unavailable to available request a single calibration of quota, account statistics and local responses. The initial network-path callback does not duplicate the launch refresh. Events within three seconds are merged, in-flight reads are reused, and recent attempts retain minimum intervals of 60 seconds for quota and 300 seconds for account statistics. Repeated failures extend the recovery cooldown exponentially, capped at 15 and 30 minutes respectively. When Cursor or DeepSeek Harness is selected, recovery requests refresh only that source through its reader. This adds no network reachability polling or repeated automatic retry loop, and a satisfied network path is not a guarantee that the selected service is reachable.
 
 Pending calibration is cancelled on sleep, app termination or disabling Automatic Refresh. A wake still updates the local countdown when automatic reads are disabled. Manual refresh remains available. The existing quota calculation, App Server protocol, cache format and TPS parsing are unchanged.
 
@@ -279,6 +291,13 @@ build/CodexMeter.app/Contents/MacOS/CodexMeter --diagnose
 ```
 
 It makes one normal quota query. `--show-popover` opens the panel at launch; `--inspect-ui` is an alias with the same normal outside-click dismissal. Do not post diagnostics or screenshots publicly if you wish to keep your usage metrics private.
+
+The other sources have a read-only summary diagnostic. These commands print status and aggregate measurements without credentials or session contents:
+
+```bash
+build/CodexMeter.app/Contents/MacOS/CodexMeter --diagnose-provider cursor
+build/CodexMeter.app/Contents/MacOS/CodexMeter --diagnose-provider deepseekHarness
+```
 
 ## Uninstall
 

@@ -10,6 +10,20 @@ public struct LogSnapshot: Sendable {
     public var recentSamples: [TPSSample] = []
     public var historyBackfilling = false
     public var historyIsUnattributed = false
+
+    public init(latestSample: TPSSample?, cachedQuota: QuotaSnapshot?, latestResponseAt: Date?,
+                hasUnmeasurableResponse: Bool, todayUsage: LocalDayUsage? = nil,
+                recentSamples: [TPSSample] = [], historyBackfilling: Bool = false,
+                historyIsUnattributed: Bool = false) {
+        self.latestSample = latestSample
+        self.cachedQuota = cachedQuota
+        self.latestResponseAt = latestResponseAt
+        self.hasUnmeasurableResponse = hasUnmeasurableResponse
+        self.todayUsage = todayUsage
+        self.recentSamples = recentSamples
+        self.historyBackfilling = historyBackfilling
+        self.historyIsUnattributed = historyIsUnattributed
+    }
 }
 
 /// Reads only appended bytes. Checkpoints contain counters and parser boundaries, never message text.
@@ -92,10 +106,12 @@ public actor LogMonitor {
     private var lastInventoryScan: Date?
     private let fileEvents: any LogFileEventReading
     private var backfillIndex = 0
-    private var lastSave = Date.distantPast
+    private var lastSaveAttempt = Date.distantPast
     private let maxLineBytes = 8 * 1024 * 1024
     private var activity: LocalActivityLedger
     private var readFailed = false
+    private var inventoryReconciled = false
+    private var checkpointNeedsSave = false
 
     public init(home: URL, cacheURL: URL? = nil, persist: Bool = true) {
         self.init(home: home, cacheURL: cacheURL, persist: persist, fileEvents: LogFileEvents(home: home))
@@ -185,7 +201,17 @@ public actor LogMonitor {
         if let latest = completions.max(by: { $0.0 < $1.0 }) {
             checkpoint.latestResponseAt = latest.0; checkpoint.latestResponseSource = latest.1
         }
-        if changed && Date().timeIntervalSince(lastSave) >= 10 { save() }
+        if inventoryReconciled && !readFailed {
+            // Preserve today's uncertainty after its source log is removed, until that warning expires.
+            let removed = checkpoint.files.keys.filter { identity in
+                inventory[identity] == nil
+                    && (checkpoint.files[identity]?.usageParser?.unsupportedAt ?? .distantPast) < dayStart
+            }
+            for identity in removed { checkpoint.files.removeValue(forKey: identity) }
+            changed = changed || !removed.isEmpty
+        }
+        checkpointNeedsSave = checkpointNeedsSave || changed
+        if checkpointNeedsSave && Date().timeIntervalSince(lastSaveAttempt) >= 10 { save() }
         let sample = checkpoint.sample
         let latest = checkpoint.latestResponseAt
         let pendingToday = ordered.contains { identity, file in
@@ -212,14 +238,23 @@ public actor LogMonitor {
     }
 
     private func refreshInventory(now: Date) -> Bool {
+        inventoryReconciled = false
         let changes = fileEvents.drain()
         var roots: [(URL, FileMetadata)] = []
         var readable = false
+        var rootsComplete = true
         for name in ["sessions", "archived_sessions"] {
             let root = home.appendingPathComponent(name)
-            guard let metadata = FileMetadata(root), metadata.isDirectory else { continue }
+            guard let metadata = FileMetadata(root) else {
+                // Missing roots are expected; denied metadata access does not establish deletion.
+                if !Self.isConfirmedMissing(root) { rootsComplete = false }
+                continue
+            }
+            guard metadata.isDirectory else { rootsComplete = false; continue }
             roots.append((root, metadata))
-            readable = FileManager.default.isReadableFile(atPath: root.path) || readable
+            let rootReadable = FileManager.default.isReadableFile(atPath: root.path)
+            rootsComplete = rootsComplete && rootReadable
+            readable = rootReadable || readable
         }
         let identities = Dictionary(uniqueKeysWithValues: roots.map { ($0.0, $0.1.identity) })
         let elapsed = lastInventoryScan.map { now.timeIntervalSince($0) }
@@ -227,6 +262,7 @@ public actor LogMonitor {
             || identities != rootIdentities || elapsed.map { $0 < 0 || $0 >= 60 } == true
         inventoryChanged = false
         if reconcile {
+            inventoryReconciled = rootsComplete && readable
             inventory.removeAll(keepingCapacity: true)
             identitiesByPath.removeAll(keepingCapacity: true)
             visitedDirectories.removeAll(keepingCapacity: true)
@@ -265,8 +301,17 @@ public actor LogMonitor {
             fileEvents.update(files: orderedInventory.map { $0.value.url }, directories: Array(directories.keys) + [home])
         }
         // A failed listing is never a complete cached inventory; retry it even without another event.
-        if readFailed { lastInventoryScan = nil }
+        if readFailed { lastInventoryScan = nil; inventoryReconciled = false }
         return readable
+    }
+
+    private static func isConfirmedMissing(_ url: URL) -> Bool {
+        var attributes = stat()
+        return url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return false }
+            let result = Darwin.lstat(path, &attributes)
+            return result != 0 && (errno == ENOENT || errno == ENOTDIR)
+        }
     }
 
     private static func contains(_ url: URL, under root: URL) -> Bool {
@@ -309,7 +354,7 @@ public actor LogMonitor {
     }
 
     private func discover(_ directory: URL, metadata: FileMetadata, depth: Int) {
-        guard depth <= 8, metadata.isDirectory else { return }
+        guard depth <= 8, metadata.isDirectory else { inventoryReconciled = false; return }
         visitedDirectories.insert(directory)
         let entries: [URL]
         if let cached = directories[directory], metadata.hasSameDirectoryContents(as: cached.metadata) {
@@ -323,7 +368,7 @@ public actor LogMonitor {
         }
         for url in entries {
             // lstat avoids following links and does not fetch unused extended attributes.
-            guard let metadata = FileMetadata(url) else { continue }
+            guard let metadata = FileMetadata(url) else { readFailed = true; continue }
             if metadata.isDirectory {
                 discover(url, metadata: metadata, depth: depth + 1)
             } else if metadata.isRegularFile && url.pathExtension == "jsonl" {
@@ -457,16 +502,21 @@ public actor LogMonitor {
     }
 
     private func save() {
-        guard let url = cacheURL else { return }
+        guard let url = cacheURL else { checkpointNeedsSave = false; return }
+        // Failed writes stay dirty, but observe the same disk-write throttle before retrying.
+        lastSaveAttempt = Date()
+        checkpointNeedsSave = true
         // Keep only one live ledger between saves, avoiding copy-on-write snapshots of its dictionaries.
         checkpoint.activity = activity.state
         defer { checkpoint.activity = nil }
         guard let data = autoreleasepool(invoking: { try? JSONEncoder().encode(checkpoint) }) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                              attributes: [.posixPermissions: 0o700])
-        try? data.write(to: url, options: .atomic)
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+            try data.write(to: url, options: .atomic)
+        } catch { return }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        lastSave = Date()
+        checkpointNeedsSave = false
     }
 
     public func flush() { save() }

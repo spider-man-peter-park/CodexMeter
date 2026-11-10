@@ -101,6 +101,14 @@ enum StatusItemAppearance {
             title = "—"
         case .fallback:
             title = "AI"
+        case .focus:
+            if descriptor.title.hasPrefix("DS ") {
+                title = widest(["DS 999.9K", "DS 999.9M", "DS 999.9B", "DS 999.9T", "DS 9223372T", "DS —"], font: font)
+            } else if descriptor.title.hasPrefix("Cu ") {
+                title = widest(["Cu 100%", "Cu <1%", "Cu $9999.9", "Cu —"], font: font)
+            } else {
+                title = widest(["5h 100%", "7d 100%", "Codex —"], font: font)
+            }
         }
         return MenuBarItem(metric: descriptor.metric, title: title, accessibilityLabel: descriptor.accessibilityLabel,
             symbolName: descriptor.symbolName, usesGPTLogo: descriptor.usesGPTLogo,
@@ -158,6 +166,18 @@ enum StatusItemAppearance {
             }
         } else if let symbol = descriptor.symbolName {
             symbolImage = makeSymbol(symbol, options: options, foreground: foreground)
+        }
+        if descriptor.metric == .focus, let original = symbolImage {
+            // Every Focus state shares one icon slot, including its offline and paused states.
+            let side = CGFloat(max(14, options.normalizedFontSize + 2))
+            let scale = min(1, side / max(1, original.size.width), side / max(1, original.size.height))
+            let width = original.size.width * scale
+            let height = original.size.height * scale
+            symbolImage = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+                original.draw(in: NSRect(x: rect.midX - width / 2, y: rect.midY - height / 2,
+                    width: width, height: height))
+                return true
+            }
         }
         if let primary = descriptor.quotaPrimary {
             return quotaImage(primary: primary, countdown: descriptor.quotaCountdown, descriptor: descriptor,
@@ -606,6 +626,7 @@ final class StatusItemRenderCache {
         let hasUploadValue: Bool
         let hasDownloadValue: Bool
         let hasQuotaPrimary: Bool
+        let focusCapacityKind: String?
 
         init(_ descriptor: MenuBarItem, options: DisplayOptions, appearance: Appearance) {
             self.options = options
@@ -618,6 +639,12 @@ final class StatusItemRenderCache {
             hasUploadValue = descriptor.networkUploadValue != nil
             hasDownloadValue = descriptor.networkDownloadValue != nil
             hasQuotaPrimary = descriptor.quotaPrimary != nil
+            if descriptor.metric == .focus {
+                focusCapacityKind = descriptor.title.hasPrefix("Cu ") ? "Cu"
+                    : descriptor.title.hasPrefix("DS ") ? "DS" : "codex"
+            } else {
+                focusCapacityKind = nil
+            }
         }
     }
 

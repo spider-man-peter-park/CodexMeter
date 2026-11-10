@@ -1,7 +1,7 @@
 import Foundation
 
 public enum MenuBarMetric: String, Codable, CaseIterable, Hashable, Sendable {
-    case fiveHour, weekly, tps, todayTokens, cpu, gpu, ram, network, fallback
+    case fiveHour, weekly, tps, todayTokens, cpu, gpu, ram, network, fallback, focus
 
     public var isSystemMetric: Bool {
         switch self {

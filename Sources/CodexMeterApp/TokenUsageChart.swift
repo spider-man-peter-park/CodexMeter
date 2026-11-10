@@ -7,8 +7,7 @@ struct TokenUsageChart: View {
     @StateObject private var selection = TokenUsageSelection()
 
     private var selectedDay: TokenUsageDay? {
-        guard let selectedX = selection.x, selectedX.isFinite else { return nil }
-        return series.days[min(6, max(0, Int(selectedX.rounded())))]
+        selection.selectedDay(in: series)
     }
 
     var body: some View {
@@ -61,7 +60,7 @@ struct TokenUsageChart: View {
                 }
             }
             .chartLegend(.hidden)
-            .chartXSelection(value: $selection.x)
+            .chartXSelection(value: selection.position(in: series))
             .chartOverlay { proxy in
                 GeometryReader { geometry in
                     if let frame = proxy.plotFrame {
@@ -89,9 +88,6 @@ struct TokenUsageChart: View {
                 .frame(height: 18, alignment: .leading).lineLimit(1)
         }
         .padding(.vertical, 4)
+        .onChange(of: series.days.map(\.id)) { _, _ in selection.reconcile(with: series) }
     }
-}
-
-private final class TokenUsageSelection: ObservableObject {
-    @Published var x: Double?
 }

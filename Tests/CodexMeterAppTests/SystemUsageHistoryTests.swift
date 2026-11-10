@@ -60,19 +60,75 @@ import CodexMeterCore
 
     @Test func selectionStaysOnTheActualSampleAsTheRelativeAxisAdvances() {
         let selection = SystemUsageHistorySelection()
-        let originalBinding = selection.relativeSeconds(endingAt: end)
+        let original = SystemUsageHistoryData(history: [sample(-60, 20), sample(-58, 30), sample(0, 40)],
+                                              value: { $0.cpuUsagePercent })
+        let originalBinding = selection.relativeSeconds(in: original)
         originalBinding.wrappedValue = -60
         #expect(selection.date == end.addingTimeInterval(-60))
 
-        let advancedEnd = end.addingTimeInterval(2)
-        let advancedBinding = selection.relativeSeconds(endingAt: advancedEnd)
-        #expect(advancedBinding.wrappedValue == -62)
         let data = SystemUsageHistoryData(history: [sample(-60, 20), sample(-58, 30), sample(2, 40)],
                                           value: { $0.cpuUsagePercent })
+        let advancedBinding = selection.relativeSeconds(in: data)
+        #expect(advancedBinding.wrappedValue == -62)
+        #expect(selection.selectedPoint(in: data)?.time == end.addingTimeInterval(-60))
         #expect(data.nearest(to: selection.date)?.time == end.addingTimeInterval(-60))
         #expect(data.nearest(to: end.addingTimeInterval(-57))?.value == 30)
 
         advancedBinding.wrappedValue = nil
         #expect(selection.date == nil)
+    }
+
+    @Test func expiredSelectionDoesNotJumpToAnotherSample() {
+        let data = SystemUsageHistoryData(history: [sample(-120, 10), sample(-60, 30), sample(0, 50)],
+                                          value: { $0.cpuUsagePercent })
+        #expect(data.nearest(to: end.addingTimeInterval(-120))?.value == 10)
+        let advanced = SystemUsageHistoryData(history: [sample(-60, 30), sample(0, 50), sample(2, 70)],
+                                              value: { $0.cpuUsagePercent })
+        #expect(advanced.nearest(to: end.addingTimeInterval(-120)) == nil)
+        #expect(advanced.nearest(to: end.addingTimeInterval(-121)) == nil)
+        #expect(advanced.nearest(to: end.addingTimeInterval(3)) == nil)
+        #expect(advanced.nearest(to: end.addingTimeInterval(-59))?.value == 30)
+    }
+
+    @Test func relativeSelectionRejectsExpiredFutureAndInvalidCoordinates() {
+        let selection = SystemUsageHistorySelection()
+        let original = SystemUsageHistoryData(history: [sample(-120, 10), sample(0, 50)],
+                                              value: { $0.cpuUsagePercent })
+        let advanced = SystemUsageHistoryData(history: [sample(0, 50), sample(2, 70)],
+                                              value: { $0.cpuUsagePercent })
+        let binding = selection.relativeSeconds(in: original)
+        binding.wrappedValue = -120
+        #expect(binding.wrappedValue == -120)
+        #expect(selection.relativeSeconds(in: advanced).wrappedValue == nil)
+        selection.reconcile(with: advanced)
+        #expect(selection.date == nil)
+        for invalid in [-121.0, 1, .nan, .infinity, -.infinity, .greatestFiniteMagnitude, -.greatestFiniteMagnitude] {
+            binding.wrappedValue = invalid
+            #expect(selection.date == nil)
+            #expect(binding.wrappedValue == nil)
+        }
+        binding.wrappedValue = 0
+        #expect(selection.date == end)
+        binding.wrappedValue = nil
+        #expect(selection.date == nil)
+    }
+
+    @Test func fractionalInputSnapsToTheSampleAndExpiresWithThatSample() {
+        let selection = SystemUsageHistorySelection()
+        let original = SystemUsageHistoryData(history: [sample(-120, 10), sample(-118, 30), sample(0, 50)],
+                                              value: { $0.cpuUsagePercent })
+        selection.relativeSeconds(in: original).wrappedValue = -119.5
+        #expect(selection.date == end.addingTimeInterval(-120))
+        #expect(selection.selectedPoint(in: original)?.value == 10)
+
+        let advanced = SystemUsageHistoryData(history: [sample(-118, 30), sample(0, 50), sample(1, 70)],
+                                              value: { $0.cpuUsagePercent })
+        #expect(selection.relativeSeconds(in: advanced).wrappedValue == nil)
+        #expect(selection.selectedPoint(in: advanced) == nil)
+        selection.reconcile(with: advanced)
+        #expect(selection.date == nil)
+
+        selection.relativeSeconds(in: advanced).wrappedValue = -118.5
+        #expect(selection.selectedPoint(in: advanced)?.time == end.addingTimeInterval(-118))
     }
 }

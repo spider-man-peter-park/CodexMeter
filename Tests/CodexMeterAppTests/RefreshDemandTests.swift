@@ -72,6 +72,7 @@ import Testing
         }
         model.setDetailPresented(false, on: .popover)
         #expect(!model.needsSystemMetrics)
+        model.menuBarMode = .individual
         model.options.showCPU = true
         #expect(model.needsSystemMetrics)
     }
