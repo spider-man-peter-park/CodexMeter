@@ -20,7 +20,8 @@ import Testing
         for initialization in 0..<2 {
             let model = AppModel(defaults: defaults, notificationCenter: center)
             #expect(model.initialLoginPreference == (initialization == 0 ? true : nil))
-            #expect(model.menuBarMode == .focus)
+            #expect(model.menuBarMode == .individual)
+            #expect(model.showFloatingHUD)
             #expect(model.options == (try JSONDecoder().decode(DisplayOptions.self, from: capturedDisplay)))
             #expect(model.refreshOptions == RefreshOptions(quotaSeconds: 180, logSeconds: 2, displaySeconds: 60, accountSeconds: 900))
             #expect(model.detailLayout.order == [.quota, .today, .speed, .account, .cpu, .gpu, .ram, .network, .settings])
@@ -36,6 +37,23 @@ import Testing
         }
         #expect(defaults.data(forKey: "displayOptions") == nil)
         #expect(defaults.data(forKey: "reminderOptions") == nil)
+    }
+
+    @Test func floatingHUDVisibilityPersistsWithoutReplacingSavedDisplayOptions() throws {
+        let (suite, defaults) = try preferences()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let display = DisplayOptions(showTPS: false, customQuotaLabel: "Existing")
+        let bytes = try JSONEncoder().encode(display)
+        defaults.set(bytes, forKey: "displayOptions")
+        let model = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        #expect(model.showFloatingHUD)
+        model.showFloatingHUD = false
+        let restored = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        #expect(!restored.showFloatingHUD)
+        #expect(restored.options == display)
+        #expect(defaults.data(forKey: "displayOptions") == bytes)
+        restored.showFloatingHUD = true
+        #expect(defaults.bool(forKey: "showFloatingHUD"))
     }
 
     @Test func savedPreferencesOverrideReleaseDefaultsIncludingDisabledReminders() throws {

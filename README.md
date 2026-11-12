@@ -2,7 +2,7 @@
 
 **Codex, Cursor and DeepSeek Harness in one quiet, native Mac workspace.**
 
-For Codex, Focus mode puts one indicator in your menu bar: the reported quota window with the least remaining allowance. Click for a quick overview, then open the resizable workspace to explore limits, local activity, account history and system metrics. Cached readings, paused refresh and unavailable data have their own visible states.
+For Codex, choose independent menu bar indicators for quota, local tokens, response speed and system metrics. Click an indicator for details, or open the resizable workspace to explore limits, usage and system metrics. Usage combines this Mac's daily estimate and account history in one page, with their dates and totals kept distinct. Cached readings, paused refresh and unavailable data have their own visible states.
 
 Choose your assistant in the quick overview or workspace sidebar. Codex keeps its plan-window and local-activity views. Cursor reads the signed-in account's reported weekly or billing-cycle allowance. DeepSeek Harness reads local session checkpoints, with cumulative tokens and observed model timing; these are separate from daily usage and account billing. Missing or incompatible data stays unavailable.
 
@@ -14,16 +14,16 @@ Built with Swift, SwiftUI and AppKit. No Electron, separate API key or third-par
   <img src="docs/images/codexmeter-workspace-light.png" width="860" alt="CodexMeter workspace in light English, showing Codex quota, local activity and response speed with sample data">
 </p>
 
-*Actual macOS window capture with sample data, without image retouching. [DeepSeek Harness in dark Chinese](docs/images/codexmeter-workspace-deepseek-dark.png) shows the same workspace with a different source.*
+*Earlier workspace layout, captured in an actual macOS window with sample data and no image retouching. [DeepSeek Harness in dark Chinese](docs/images/codexmeter-workspace-deepseek-dark.png) shows the same workspace with a different source.*
 
-## Focus and workspace
+## Menu bar and workspace
 
-- **Focus, by default:** one stable menu bar item follows the selected assistant. For Codex, `5h` or `7d` identifies the limiting cycle; a reset countdown never confirms recovery without a fresh quota reading. Cursor shows remaining allowance or reported allowance consumed, and DeepSeek Harness shows local cumulative tokens.
-- **Quick overview:** remaining quota, reset times, local tokens and the latest estimated response speed, with a direct workspace action.
-- **Native workspace:** a persistent sidebar separates plan limits, this Mac's activity, response history, account-wide usage and CPU/GPU/RAM/network details. Account dates remain distinct from the local calendar day.
-- **Individual metrics:** restore the original independent menu bar items in Settings → Menu bar appearance. Your saved visibility, labels and style choices remain available.
+- **Independent Codex metrics:** choose visible items, labels and styles in Settings. Existing display choices are preserved, including when upgrading from the removed Focus mode.
+- **One workspace and Settings window:** a persistent sidebar contains plan limits, Usage, responses, hardware and all Settings categories. Command-comma returns to the last settings category; Command-0 opens Overview. Menu bar clicks keep opening independent detail popovers while this window is visible. Usage retains separate dates and totals for local activity and account history.
+- **Projected HUD:** an animated white/gold mechanical reactor snaps to the screen edge with a margin and remembers its position. Hover to project a centered dark cyan instrument dashboard with segmented rings, circuit traces and read-only telemetry. Left-click the orb for an energy pulse, hold the left button to drag it, and right-click for options. It shows the selected assistant's metrics plus CPU, GPU, RAM and upload/download. The light layer passes desktop clicks through. Hide it from the orb's right-click menu, the app menu checkbox or Settings → General → Show floating HUD.
+- **Additional assistants:** Cursor and DeepSeek Harness each use one source indicator and a compact overview with a workspace action.
 
-In Focus mode, hardware sampling stops when no system detail is open. Opening a system module requests its live readings and process details; closing or minimizing the workspace releases that demand.
+Hardware sampling follows visible system menu bar items, open system pages and the expanded HUD. Process details are requested only while their matching system page is open.
 
 ## At a glance
 
@@ -37,14 +37,14 @@ In Focus mode, hardware sampling stops when no system detail is open. Opening a 
 | RAM | `RAM 50%` | Physical memory used by apps, wired memory and compression |
 | Upload / download | `↑ 1.5 KB/s` above `↓ 2.3 MB/s` | Both transfer rates share one native menu bar item |
 
-*Illustrative values, not live readings.* These independent native items are available in Individual metrics mode: hide what you do not need, and hold Command to drag items into place. Focus mode shows one indicator. Accounts that report only weekly quota do not keep an unsupported 5-hour card after a successful read.
+*Illustrative values, not live readings.* Hide the independent Codex items you do not need, and hold Command to drag items into place. Accounts that report only weekly quota do not keep an unsupported 5-hour card after a successful read.
 
 - **More detail when you need it.** Each menu bar item opens its matching detail. RAM includes pressure, a two-minute history, memory composition, swap and top processes; CPU includes core usage, load averages and top processes; GPU includes supported driver readings and hardware information. Network details include the top processes with separate upload/download rates. Account token history, recent-response TPS charts and reset credits remain available.
 - **Local reminders.** Low-quota, quota-recovery and reset-credit expiry alerts, with configurable thresholds and macOS notification permission.
 - **Your menu bar, your layout.** Choose labels, typography, colors and inline or stacked TPS. CPU/GPU/RAM each have independent icon and label switches, with the label above or left of its number. Switch between enabled modules through the other-details menu.
 - **Native macOS behavior.** Light and dark appearance, launch at login, English and Simplified Chinese. Runs in the menu bar without a Dock icon; open the workspace when needed.
 
-Each menu bar item uses a compact fixed width for its selected font, labels and layout. Changing readings, network units, countdowns or cache state does not move neighboring items. Stacked RAM aligns its label with the numeric digits, excluding `%`. Today's tokens adds an optional `tok` label between its icon and count. Individual-mode detail popovers fit their expanded content up to the screen height; workspace pages scroll within the window.
+Each menu bar item uses a compact fixed width for its selected font, labels and layout. Changing readings, network units, countdowns or cache state does not move neighboring items. Stacked RAM aligns its label with the numeric digits, excluding `%`. Today's tokens adds an optional `tok` label between its icon and count. Detail popovers fit their expanded content up to the screen height; workspace pages scroll within the window.
 
 ## Install
 
@@ -74,8 +74,8 @@ This is the project's third-party tap, not the official Homebrew Cask repository
 
 ### First launch
 
-1. Look for CodexMeter's Focus indicator in the menu bar.
-2. Click it, choose your assistant and open the workspace for details.
+1. Look for CodexMeter's metric indicators in the menu bar.
+2. Click one for details, or open the workspace from its context menu to choose your assistant.
 3. Open **Settings** to choose visible metrics, refresh intervals and language. New installations request launch at login once; you can disable it in Settings.
 4. To receive reminders, enable notifications in Settings and grant macOS permission. Keep Automatic Refresh enabled for background monitoring.
 

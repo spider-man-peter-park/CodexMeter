@@ -11,7 +11,7 @@ struct WorkspaceView: View {
 
     private var selection: Binding<WorkspaceDestination?> {
         Binding(get: { navigation.destination }, set: { value in
-            if let value { navigation.destination = value }
+            if let value { navigation.select(value) }
         })
     }
 
@@ -39,14 +39,19 @@ struct WorkspaceView: View {
                     WorkspaceNavigationRow(destination: .overview)
                     if model.provider == .codex {
                         Section(L10n.text("Codex")) {
-                            ForEach(WorkspaceDestination.codexSections) { section in
-                                WorkspaceNavigationRow(destination: .detail(section))
+                            ForEach(WorkspaceDestination.codexDestinations) { destination in
+                                WorkspaceNavigationRow(destination: destination)
                             }
                         }
                     }
                     Section(L10n.text("This Mac")) {
                         ForEach(WorkspaceDestination.systemSections) { section in
                             WorkspaceNavigationRow(destination: .detail(section))
+                        }
+                    }
+                    Section(L10n.text("Settings")) {
+                        ForEach(SettingsPane.allCases) { pane in
+                            WorkspaceNavigationRow(destination: .settings(pane))
                         }
                     }
                 }
@@ -69,24 +74,15 @@ struct WorkspaceView: View {
                         : usage.result(for: model.provider).status == .loading,
                     refresh: model.refresh, onOpenSettings: onOpenSettings, onOpenAbout: onOpenAbout)
                 Divider()
-                ScrollView {
-                    Group {
-                        switch navigation.destination {
-                        case .overview where model.provider != .codex:
-                            ProviderUsageView(model: model, usage: usage)
-                        case .overview:
-                            WorkspaceOverviewView(model: model, navigate: navigate)
-                        case .detail(let section):
-                            MetricDetailContent(model: model, updates: updates, section: section)
-                                .frame(maxWidth: 820, alignment: .leading)
-                        }
-                    }
-                    .padding(28)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                if case .settings(let pane) = navigation.destination {
+                    SettingsContent(model: model, updates: updates, pane: pane)
+                        .id(pane)
+                        .onAppear { model.refreshLoginStatus() }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .background(MeterStyle.background)
+                } else {
+                    detailContent
                 }
-                .id(navigation.destination.id + model.provider.rawValue)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(MeterStyle.background)
                 if updates.updateAvailable, let version = updates.latestVersion {
                     Divider()
                     Link(L10n.text("CodexMeter \(version.description) is available"), destination: AppMetadata.projectURL)
@@ -99,7 +95,33 @@ struct WorkspaceView: View {
         }
     }
 
+    private var detailContent: some View {
+        ScrollView {
+            Group {
+                switch navigation.destination {
+                case .overview where model.provider != .codex:
+                    ProviderUsageView(model: model, usage: usage)
+                case .overview:
+                    WorkspaceOverviewView(model: model, navigate: navigate)
+                case .usage:
+                    MetricDetailContent(model: model, updates: updates, section: .account)
+                        .frame(maxWidth: 820, alignment: .leading)
+                case .detail(let section):
+                    MetricDetailContent(model: model, updates: updates, section: section)
+                        .frame(maxWidth: 820, alignment: .leading)
+                case .settings:
+                    EmptyView()
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .id(navigation.destination.id + model.provider.rawValue)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MeterStyle.background)
+    }
+
     private func navigate(_ destination: WorkspaceDestination) {
-        navigation.destination = destination
+        navigation.select(destination)
     }
 }

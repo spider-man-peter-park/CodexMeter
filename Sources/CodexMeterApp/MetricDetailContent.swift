@@ -11,9 +11,8 @@ struct MetricDetailContent: View {
         Group {
             switch section {
             case .quota: quotaSection
-            case .today: localTodaySection
+            case .today, .account: usageSection
             case .speed: speedSection
-            case .account: accountSection
             case .cpu, .gpu, .ram:
                 SystemMetricsDetailView(section: section,
                     snapshot: model.currentSystemMetrics, history: model.systemMetricsHistory)
@@ -126,6 +125,14 @@ struct MetricDetailContent: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    private var usageSection: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            localTodaySection
+            Divider()
+            accountSection
+        }
+    }
+
     private var accountSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -137,6 +144,7 @@ struct MetricDetailContent: View {
                     .font(MeterStyle.captionFont).foregroundStyle(.secondary)
                 if info.isStale || model.accountWarning != nil {
                     MeterStatusLabel(title: L10n.text("Cached account data"), symbol: "clock.badge.exclamationmark")
+                        .help(L10n.text("Account usage is cached and may be outdated."))
                 }
             }
             if let series = model.recentTokenUsage {
@@ -166,15 +174,7 @@ struct MetricDetailContent: View {
                 Divider()
                 dailyHistorySection(buckets)
             }
-            Divider()
-            if let info = model.accountInfo {
-                Text(L10n.text("Usage updated \(Self.date(info.updatedAt))"))
-                    .font(MeterStyle.captionFont).foregroundStyle(.secondary)
-                if info.isStale || model.accountWarning != nil {
-                    MeterStatusLabel(title: L10n.text("Cached account data"), symbol: "clock.badge.exclamationmark")
-                        .help(L10n.text("Account usage is cached and may be outdated."))
-                }
-            } else {
+            if model.accountInfo == nil {
                 Text(L10n.text("Account token statistics are currently unavailable."))
                     .font(MeterStyle.captionFont).foregroundStyle(.secondary)
             }

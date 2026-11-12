@@ -39,6 +39,9 @@
 "Account statistics are temporarily unavailable." = "账户统计暂不可用。";
 "Account token statistics are currently unavailable." = "账户 Token 统计暂不可用。";
 "Account usage" = "账户用量";
+"Token usage" = "用量";
+"View usage" = "查看用量";
+"Today's local estimate and account history, with separate dates and totals." = "今日本机估算与账户历史，日期和总量分别统计。";
 "Account usage is cached and may be outdated." = "账户用量来自缓存，可能已过时。";
 "Adaptive" = "自适应";
 "Alerts use fresh quota readings. Turn on Automatic Refresh for background monitoring. Previously scheduled card reminders can arrive while the app is closed; their status reflects the last successful read." = "提醒以实时额度为依据。请打开自动刷新以在后台监控。已安排的到期提醒可在应用关闭时送达，卡片状态以上次成功读取为准。";
@@ -513,3 +516,28 @@
 "DeepSeek Harness local projection cache could not be read." = "无法读取 DeepSeek Harness 本地投影缓存。";
 "DeepSeek Harness usage reading was cancelled." = "DeepSeek Harness 用量读取已取消。";
 "No supported DeepSeek Harness usage checkpoints could be read. Missing or incompatible data is not zero usage." = "未能读取受支持的 DeepSeek Harness 用量检查点；数据缺失或格式不兼容不代表用量为零。";
+
+// Floating telemetry HUD.
+"Assistant telemetry" = "助手指标";
+"Collapse floating HUD" = "收起悬浮仪表";
+"Floating HUD" = "悬浮仪表";
+"Hide floating HUD" = "隐藏悬浮球";
+"Hover or click to expand. Drag to move." = "悬停或点击展开，拖动调整位置。";
+"Open metric details" = "打开指标详情";
+"Reported tokens" = "报告的 Token 数";
+"Reported usage" = "报告的用量";
+"Show floating HUD" = "显示悬浮球";
+
+// Centered projection and orb interactions.
+"Core telemetry" = "核心指标";
+"HUD projection light" = "投影光束";
+"Hover to project. Left-click for an energy pulse, right-click for options. Hold and drag to move." = "悬停显示投影，左键点击触发能量脉冲，右键打开选项，按住左键拖动。";
+"Move away to dismiss" = "移开鼠标自动收起";
+"Projected dashboard" = "投影仪表盘";
+"Read-only projection" = "数据投影";
+"Read-only telemetry" = "只读监测数据";
+"Remaining quota" = "剩余额度";
+"Right-click the orb for options" = "右键悬浮球打开选项";
+"Telemetry projection" = "全息仪表";
+
+"Local activity" = "本机活动";

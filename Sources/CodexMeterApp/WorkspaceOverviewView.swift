@@ -71,7 +71,7 @@ struct WorkspaceOverviewView: View {
                             .font(MeterStyle.captionFont).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
-                        Button(L10n.text("Account usage"), systemImage: "arrow.right", action: openAccount)
+                        Button(L10n.text("View usage"), systemImage: "arrow.right", action: openUsage)
                             .buttonStyle(.borderless).fixedSize()
                     }
                 }
@@ -82,7 +82,7 @@ struct WorkspaceOverviewView: View {
     }
 
     private func openQuota() { navigate(.detail(.quota)) }
-    private func openToday() { navigate(.detail(.today)) }
+    private func openToday() { openUsage() }
     private func openResponses() { navigate(.detail(.speed)) }
-    private func openAccount() { navigate(.detail(.account)) }
+    private func openUsage() { navigate(.usage) }
 }

@@ -35,40 +35,35 @@ import Testing
         return (suite, defaults)
     }
 
-    @Test func freshFocusModeLeavesConfiguredHardwareDormantWhenNoDetailIsVisible() throws {
+    @Test func freshMenuBarUsesConfiguredIndividualMetricsWithoutChangingDisplayPreferences() throws {
         let (suite, defaults) = try preferences()
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
-        #expect(model.menuBarMode == .focus)
+        #expect(model.menuBarMode == .individual)
+        #expect(MenuBarMode.allCases == [.individual])
         #expect(model.options.showCPU && model.options.showGPU && model.options.showRAM)
         #expect(model.options.showNetworkUpload && model.options.showNetworkDownload)
-        #expect(!model.needsSystemMetrics)
+        #expect(model.needsSystemMetrics)
         #expect(model.systemDetailDemand == SystemMetricsDetailDemand())
         #expect(defaults.data(forKey: "displayOptions") == nil)
+        #expect(defaults.object(forKey: "menuBarMode") == nil)
     }
 
-    @Test func modeSwitchingRestoresIndividualDemandAndPersistsWithoutReplacingDisplayChoices() throws {
+    @Test func removedFocusModeMigratesAndRestoresSavedMetricChoicesWithoutReplacingThem() throws {
         let (suite, defaults) = try preferences()
         defer { defaults.removePersistentDomain(forName: suite) }
-        let model = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
-        model.options.showGPU = false
-        model.options.ramDisplay.showIcon = false
-        model.options.customQuotaLabel = "Personal"
-        let original = model.options
-        let originalData = defaults.data(forKey: "displayOptions")
-
-        model.menuBarMode = .individual
-        #expect(model.needsSystemMetrics)
+        let original = DisplayOptions(showGPU: false,
+            ramDisplay: SystemMetricDisplayOptions(showIcon: false), customQuotaLabel: "Personal")
+        let originalData = try JSONEncoder().encode(original)
+        defaults.set(originalData, forKey: "displayOptions")
+        defaults.set("focus", forKey: "menuBarMode")
+        let migrated = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        #expect(migrated.menuBarMode == .individual)
+        #expect(migrated.needsSystemMetrics)
         #expect(defaults.string(forKey: "menuBarMode") == "individual")
-        let individual = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
-        #expect(individual.menuBarMode == .individual)
-        #expect(individual.needsSystemMetrics)
-        #expect(individual.options == original)
-
-        model.menuBarMode = .focus
-        #expect(!model.needsSystemMetrics)
         let restored = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
-        #expect(restored.menuBarMode == .focus)
+        #expect(restored.menuBarMode == .individual)
+        #expect(restored.needsSystemMetrics)
         #expect(restored.options == original)
         #expect(defaults.data(forKey: "displayOptions") == originalData)
     }
@@ -77,6 +72,7 @@ import Testing
         let (suite, defaults) = try preferences()
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        hideHardwareItems(in: model)
         model.selectedDetailSection = .cpu
         #expect(!model.needsSystemMetrics)
         model.setDetailPresented(true, on: .workspace)
@@ -102,6 +98,7 @@ import Testing
         let (suite, defaults) = try preferences()
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        hideHardwareItems(in: model)
         model.selectedDetailSection = .network
         model.setDetailPresented(true, on: .workspace)
         model.setDetailPresented(true, on: .preview)
@@ -113,21 +110,25 @@ import Testing
         #expect(model.systemDetailDemand == SystemMetricsDetailDemand())
     }
 
-    @Test func settingsObserveModeChangesAndBindingsButIgnoreLiveMetrics() throws {
+    @Test func settingsMetricBindingsApplyImmediatelyAfterFocusMigrationAndIgnoreLiveMetrics() throws {
         let (suite, defaults) = try preferences()
         defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("focus", forKey: "menuBarMode")
         let model = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
+        hideHardwareItems(in: model)
         let settings = AppSettingsObservation(model: model)
         var changes = 0
         let subscription = settings.objectWillChange.sink { changes += 1 }
         defer { subscription.cancel() }
-        model.menuBarMode = .individual
+        settings.binding(\.options.showCPU).wrappedValue = true
         #expect(changes == 1)
-        model.menuBarMode = .individual
+        #expect(model.needsSystemMetrics)
+        settings.binding(\.options.showCPU).wrappedValue = true
         #expect(changes == 1)
-        settings.binding(\.menuBarMode).wrappedValue = .focus
+        settings.binding(\.options.showCPU).wrappedValue = false
         #expect(changes == 2)
-        #expect(defaults.string(forKey: "menuBarMode") == "focus")
+        #expect(!model.needsSystemMetrics)
+        #expect(defaults.string(forKey: "menuBarMode") == "individual")
 
         for index in 0..<100 {
             let time = Date(timeIntervalSince1970: Double(index))
@@ -142,7 +143,7 @@ import Testing
         #expect(changes == 2)
     }
 
-    @Test func unknownSavedModeFallsBackToFocusWithoutOverwritingExistingDisplayOptions() throws {
+    @Test func unknownSavedModeMigratesToIndividualWithoutOverwritingExistingDisplayOptions() throws {
         let (suite, defaults) = try preferences()
         defer { defaults.removePersistentDomain(forName: suite) }
         let saved = DisplayOptions(showFiveHour: false, showTPS: false, showGPU: false,
@@ -151,9 +152,18 @@ import Testing
         defaults.set(bytes, forKey: "displayOptions")
         defaults.set("future-mode", forKey: "menuBarMode")
         let model = AppModel(defaults: defaults, notificationCenter: TestReminderCenter())
-        #expect(model.menuBarMode == .focus)
+        #expect(model.menuBarMode == .individual)
+        #expect(defaults.string(forKey: "menuBarMode") == "individual")
         #expect(model.options == saved)
-        #expect(!model.needsSystemMetrics)
+        #expect(model.needsSystemMetrics)
         #expect(defaults.data(forKey: "displayOptions") == bytes)
+    }
+
+    private func hideHardwareItems(in model: AppModel) {
+        model.options.showCPU = false
+        model.options.showGPU = false
+        model.options.showRAM = false
+        model.options.showNetworkUpload = false
+        model.options.showNetworkDownload = false
     }
 }

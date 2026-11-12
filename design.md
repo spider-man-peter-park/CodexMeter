@@ -1,8 +1,8 @@
 # CodexMeter UI design specification
 
-## Current direction — 2026-11-07
+## Current direction — 2026-11-11
 
-The user authorized a substantial product redesign and then added Cursor and DeepSeek Harness support. The Focus/workspace contract in the latest section below supersedes the earlier default multi-item/popover-only layout. The original individual-metric presentation remains available; saved metric preferences and the Codex data ledger are retained.
+The user authorized a substantial product redesign and then added Cursor and DeepSeek Harness support. The latest contracts below consolidate Usage and Settings into the native workspace, preserve independent menu bar popovers, and add a separate floating sci-fi HUD. Codex uses the individual-metric presentation; saved metric preferences and the Codex data ledger are retained. The HUD's latest white/gold mechanical reactor and dark cyan instrument projection are an exception to the neutral main-window styling; they supersede the earlier blue/violet glass direction.
 
 ## Direction and scope
 
@@ -421,3 +421,338 @@ After the user unlocked the Mac and requested the remaining checks, the delegate
 Three Command-W/ordinary-application-reopen cycles retained the same process, Codex source and Account module. All three native PNGs show complete chrome and scrollable content; WindowServer measured the original 940×732 pt frame and position on the first and third cycles. Scroll position returned to the top on reopening. About displayed 0.5.1 (23), and Settings showed the existing English/Focus configuration. The executor restored the original Codex Overview and window position and left the installed app running. A final independent check confirmed one installed-app process, an unchanged executable hash, and unchanged values in all 15 pre-existing setting groups compared with the installation baseline. Actual mouse-drag enforcement of minimum size remains unverified.
 
 Native screenshots and the verification report are retained only under `/private/tmp/codexmeter-installed-ui-qa/`. They contain real usage data and were not copied into repository images or published. The coordinator independently inspected the long Account page, DeepSeek page and third reopened Account capture. No production code changed or new build/test run was needed for this verification. GitHub, update feeds and Homebrew remain unchanged.
+
+## Unified Usage and individual menu bar — 2026-11-11
+
+The user requested merging Today · this Mac and Account usage and removing Codex's menu bar Focus mode. The workspace now has one Usage destination. Today's local total, record count and input/output appear first; the account chart, statistics and daily history follow. Each retains its own dates, coverage and warning states, and the totals are never added together. Both overview links and legacy workspace routes open Usage. The local-token detail popover uses the same combined content, and its navigation menu consolidates the two legacy entries without rewriting saved section order or visibility. The duplicate account update/cache footer is removed; the original header and cache explanation remain.
+
+Codex uses its saved individual metric choices. Existing Focus or unknown mode preferences migrate to Individual; fresh initialization keeps its first-run login behavior. The mode picker and Focus-only metric notice are removed. Cursor and DeepSeek Harness keep their existing source indicators, while quota summaries, data readers, reminders, refresh intervals and display choices retain their existing behavior. Hardware demand follows the visible individual indicators and open system details.
+
+The delegated GPT-6.1 Terra xhigh executor inspected actual fixture windows through Computer Use. Baseline light/English captures showed the separate Today and Account pages and Focus picker. Round 1 inspected the combined Usage page at its top and bottom, both Overview links, Appearance and metric settings in light/English. Round 2 inspected Usage at its top and bottom, Appearance and metric settings in dark/Chinese. The fixed header, sidebar and Settings action stayed visible during scrolling; text and controls were readable, with no observed clipping or correction required in either round. Preview applications used separate bundle identifiers, fixture data and app-local language/appearance. Actual window screenshots were emitted inline by the tool, which offered no documented file export; no saved PNG evidence is claimed.
+
+Validation: the complete serial suite reported 364 tests in 50 suites, with 358 passing and six optional performance tests skipped. Coverage includes legacy mode migration and display preservation, consolidated navigation with unchanged stored layouts, and local-token workspace routing. The local production build passed signature and packaged localization/artwork checks. The generated Xcode project and both localization catalogs passed property-list validation. SwiftPM required its documented native backend with nested sandboxing disabled in this restricted environment; no full-Xcode or Intel run is claimed.
+
+Limits: native status-item/context-menu/popover interaction was not manually checked because the isolated preview instances made status items ambiguous. The shared combined detail implementation and navigation have source/test coverage, while actual visual checks cover the workspace and Settings. VoiceOver, system accessibility settings and minimum-screen resizing were not manually checked for this change. Earlier repository screenshots retain their earlier layout and are labeled accordingly.
+
+Delivery is local at `build/CodexMeter.app`. This task does not replace the system installation or publish, synchronize, commit, push, tag, update release feeds or change Homebrew.
+
+## Automatic system installation — 2026-11-11
+
+The user gave standing authorization to replace and restart `/Applications/CodexMeter.app` after future code updates are completed and verified. This is recorded in `AGENTS.md`; GitHub synchronization and Homebrew publishing still require separate explicit commands.
+
+The verified build was installed with the same bundle identifier and user-data locations. The original system package is backed up at `build/installation-backups/2026-11-11-8d3267dc/CodexMeter.app`. Full file manifests, strict signature verification and packaged localization/artwork checks established that the installed application matches the local build.
+
+The real installed-app smoke check exposed a localization collision that the earlier fixture review missed: the new Usage entry duplicated the hardware Usage key, so Chinese displayed the utilization label. Token usage now has a distinct localization key: the workspace displays Usage in English and 用量 in Chinese, while hardware utilization retains 使用率. Both catalogs have 504 unique keys with no duplicates. All 17 targeted localization, layout and navigation tests passed after the correction, and the production package was rebuilt and automatically reinstalled. The previous full-suite result above predates this isolated wording correction; no additional full-suite run is claimed.
+
+The delegated GPT-6.1 Terra xhigh executor inspected the exact system installation. The combined page, its account history and the removal of the mode picker were visible. The final corrected sidebar and page header both displayed 用量, while hardware labels retained 使用率. Settings was closed and the app was left running on Overview without changing its source, language, appearance or other preferences. Live screenshots were inspected inline only and were not saved or copied into repository artifacts. Native status-item/popover interaction remains unverified. No commit, push or publication occurred.
+
+## Unified window and floating reactor HUD — 2026-11-11
+
+The user requested one combined workspace/Settings window, independent menu bar popovers regardless of that window's visibility, and a sci-fi floating orb that expands into a telemetry HUD on hover. All five existing Settings categories now live in the workspace sidebar and content pane. Command-comma opens the last Settings category; Command-0 opens Overview. The former Settings window/controller is removed. Existing workspace geometry, data stores, preferences and controls remain in use. Native app reopen explicitly restores the workspace even while the always-visible HUD panel exists.
+
+Menu bar actions no longer redirect into an open workspace or raise that window. Workspace and popover detail selections now track telemetry demand separately; simultaneous CPU and network details retain their own rich data requests. The HUD requests only basic hardware measurements while expanded. Closing, hiding or collapsing it releases that request, and hiding it releases its hosting graph/controller. No additional background hardware polling or continuous visual animation was added.
+
+The HUD is a separate nonactivating floating panel, enabled by default with a persistent Show floating HUD switch in General and the application/context menu. It uses a code-drawn cyan reactor orb, dark navy angular frame, monospaced telemetry, thin instrument bars and amber warning states. This explicitly requested sci-fi surface is confined to the overlay; the unified main window keeps its native neutral style. The orb stays stationary while the dashboard expands toward the available space. Dragged coordinates persist, restore on a connected secondary display and clamp after display removal. The dashboard scrolls on shorter screens. Native tracking expands it on hover; a generation-guarded 320ms exit delay preserves movement across the orb/dashboard bridge, and click-to-expand is also available. The finite opacity transition honors Reduce Motion. Codex quota/local-day/TPS, provider-specific counters and hardware/network readings retain their separate measurement definitions and unavailable/cache qualifiers.
+
+UI/UX Pro Max returned a verified HUD / Sci-Fi FUI style. Native SF/SF Mono, readable contrast, labeled actions and the sci-fi linework apply. Its generated full-screen tour/CTA, web fonts, responsive web breakpoints, continuous scanning/tickers and imported web libraries do not fit this utility and were not adopted.
+
+The delegated GPT-6.1 Terra xhigh executor inspected the actual installed baseline with separate workspace and Settings windows. Round 1 inspected fixture light/English unified navigation and the native floating panel. Command-comma and Command-0 switched the same main window, closing it left the HUD present, collapse reduced the HUD to the orb, clicking the orb expanded it, and Open workspace restored Overview. The HUD's quota/TPS/hardware/network controls were visible without observed clipping. English Settings sidebar titles were truncated; the correction uses two-line native labels with fixed vertical sizing.
+
+Validation: the complete serial suite reported 375 tests in 51 suites, with 369 passing and six optional performance benchmarks skipped. Coverage includes saved HUD visibility, multi-display placement/repair, hover reentry and drag cancellation, simultaneous detail-demand isolation, and remembered Settings navigation. Following the sidebar and lifecycle corrections, all 37 targeted tests in seven suites passed. The release package passed strict signature and packaged-resource verification; the Xcode project and both catalogs passed property-list validation. Both catalogs have 513 entries with no duplicate keys. A fixture-only production status-button performClick check reported workspaceVisible=true, popoverShown=true and independentPopoverWindow=true, confirming actual native popover/window coexistence. This is programmatic native-action evidence rather than a physical status-bar mouse test.
+
+## Centered JARVIS projection and orb gestures — 2026-11-11
+
+The user's additional instructions supersede the earlier adjacent HUD presentation: the orb must animate, snap to screen edges with spacing, project light toward a centered JARVIS-style dashboard on hover, support left-button drag and click feedback, and provide options on right-click. The projection must contain no clickable buttons.
+
+The overlay now uses three independent borderless, nonactivating panels: a 68-point reactor orb, an adaptive 820×580-point centered dashboard on the orb's current display, and a decorative full-display light layer behind both. The light layer ignores all mouse events. The dashboard contains read-only text, gauges and telemetry with no metric actions, core button or footer buttons; a scroll view supports shorter displays. Outside clicks continue to their target applications. The orb's native right-click menu owns Open workspace, Settings, Refresh and Hide actions. Workspace and Settings actions collapse the projection before opening the unified main window and suppress hover reopening until the pointer leaves the orb.
+
+Native Core Animation rotates asymmetric rings over 17/11-second cycles, breathes the core over 2.4 seconds and gives left-click a short energy burst. Reduce Motion keeps a static reactor and avoids the projection fade. Animation layers and mouse monitors are removed with the hidden/dismantled overlay. Left-button movement uses a three-point drag threshold, then saves its position after snapping to the nearest visible-screen edge with a 24-point margin. Secondary-display restoration and removed-display fallback remain in use. A beam corridor and 700ms guarded exit grace allow movement from the orb to the dashboard; native menu tracking suspends collapse.
+
+The revised complete serial suite reported 376 tests in 51 suites: 370 passed and six optional benchmarks were skipped. Revised geometry tests cover centered projection, beam origin/target, edge margins, noninteractive retention corridors, screen restoration, hover cancellation and drag state. Both 523-entry localization catalogs contain no duplicate keys and no missing static HUD labels. The generated Xcode project and catalogs passed property-list validation. A fixture-only geometry report provides actual panel/display rectangles and scale for native UI verification, without usage values or input-event injection.
+
+Final projection verification: the delegated executor captured the actual orb twice with asymmetric cyan segments in different positions, observed the native four-item right-click menu and its unified Settings action, and captured the actual light-layer panel projecting toward screen center. The short click impulse itself was not captured. Because the native tool selects one window at a time, a guarded fixture-only dashboard-layer mode temporarily hid the orb/light while preserving the exact actual dashboard NSPanel, content, geometry and nonactivating properties. That actual dashboard passed English/light and Chinese/dark inspection: complete telemetry, readable three-column composition, and an accessibility tree with text/collection/scroll content and no buttons. These are actual separate-layer captures, not a single composited full-screen screenshot or renderer mockup. Final targeted validation passed all 27 tests in five suites after the fixture diagnostics/capture hooks were added.
+
+Limits: pure pointer-hover and physical drag were not exercised by the native tool, which has no hover operation and does not document its drag coordinate contract. Their geometry, drag threshold, snap and retention state have source/test coverage; no physical-interaction pass is claimed. The actual layer screenshots were emitted inline only and were not saved as PNGs. VoiceOver, system accessibility settings, multiple physical displays and smallest-screen rendering were not manually checked.
+
+The production package was automatically installed at `/Applications/CodexMeter.app` and restarted without preview flags. Full package manifests match `build/CodexMeter.app`; strict signature and packaged localization/artwork verification passed. The previous system package is retained at `build/installation-backups/2026-11-11-0f7c3b09/CodexMeter.app`. The exact installed app passed same-window Settings/Overview shortcuts, actual orb/menu visibility and the Settings context action. Closing the main window retained the orb; normal LaunchServices reopening restored Overview in the same single process, and the application was left running. Real settings/source/appearance were not changed by the executor. No commit, push, release publication or Homebrew update occurred.
+
+## Stable preview identity and stronger projection — 2026-11-11
+
+The user requires reusing one already-authorized preview application for every future UI round. The retained path is `/private/tmp/codexmeter-unified-hud-qa/dashboard/CodexMeter.app`, with the existing bundle identifier `io.github.codexmeter.unified-hud-qa.dashboard`. Both remain fixed. `scripts/preview-app.sh` verifies and updates this application in place, preserves its name/preferences/identity, and provides prepare, launch, launch-existing, stop and read-only check modes. Launch-existing changes test arguments without copying or re-signing the package. Holding directories contain Contents payloads rather than extra application bundles. Launches use no `open -n` and require fixture mode.
+
+The duplicate audit found two lingering preview processes alongside the installed application. Their kernel executable paths used `/tmp`, while earlier cleanup compared raw `/private/tmp` strings. Cleanup now resolves executable paths before matching and proves that the fixed preview has stopped. Fifteen historical preview/backup bundles were converted to ZIP archives with CRC, per-file SHA-256, symlink and mode verification; logs, screenshots and preference stores were retained. Path-specific unregister calls reduced 17 CodexMeter Launch Services registrations to the installed application and the one retained preview. No global Launch Services or privacy-permission reset was performed. Old backups no longer remain as runnable application bundles; future installation backups use verified ZIP archives as well.
+
+The user also requested a much more pronounced projection and no top/bottom dashboard text. The top branding/title strip, bottom instruction strip, decorative read-only core caption and their reserved space are removed; metric labels, source identity and freshness/warning information remain. The dashboard is now 820×460 points before screen adaptation. The expanded projection uses native composited wide electric-blue/cyan/white cones, eleven bright filaments, source coronas, projected cross-sections, portal ellipses and seven traveling energy particles. Geometry is cached and rebuilt only for bounds/layout changes; animation layers are removed on unmount, and Reduce Motion uses the static scene. The projected dashboard still contains no buttons or click actions.
+
+The existing complete suite passed again after these visual changes: 376 tests in 51 suites, with 370 passing and six optional benchmarks skipped. A subsequent review set explicit particle-child durations to their animation group's full cycle. Native UI verification uses the same retained preview identity throughout, with the production application temporarily stopped to avoid duplicate on-screen orbs during tests.
+
+Final stronger-projection verification reused only the retained preview path and bundle identifier. The normal overlay-layer capture showed a visibly broader/brighter cone, multiple hot filaments, portal/corona rings and moving energy points. The tool renders transparent background white in that isolated light-layer image, so it is not a fully composited desktop-contrast check. Relaunching the identical package with `--launch-existing` then isolated the actual dashboard panel: the 1640×920-pixel capture corresponds to 820×460 points, with the top branding and bottom hints absent, no reserved blank bands, readable metrics/status, and zero buttons in the accessibility tree. No new authorization prompt was observed during these fixed-identity checks.
+
+The helper then stopped the retained preview and verified zero running preview processes. The updated production package was automatically installed and restarted; signatures, resources and the full package manifest match the verified build. The previous version is retained as the verified archive `build/installation-backups/2026-11-11-a01af54a/CodexMeter.app.zip`. Final installed-app checks passed same-window General/Overview navigation, orb visibility, the four right-click options and restoring Overview from the orb menu. The app was left running. Final process/registration audit found one running application process, `/Applications/CodexMeter.app`, and exactly two registered identities: that installed app and the stopped fixed preview. No privacy grants were reset, and no commit or publication occurred.
+
+## User-reference blue/violet glass projection — 2026-11-11
+
+The user's supplied reference replaces the earlier angular black instrument panel and hard laser styling with an open blue/violet glass composition. The overlay now has a luminous circular lens, four rounded translucent metric cards, drifting silk-like waves, thin orbital trails and starlights, and a soft volumetric fan from the orb's saved edge. The orb is a blue/violet glass energy sphere. No wallpaper, system menu bar or Dock content from the reference is reproduced. Its greeting, calendar/media/task actions and microphone buttons are replaced by the existing measured data; the projection remains strictly read-only without top branding or bottom hints.
+
+The shared cached composition owns the exact circle/card frames and 22-point corners. The 1120×680-point normal scene has four cards containing provider quota/allowance, local activity or provider-session data, CPU/GPU/RAM, and upload/download; the central lens retains the primary reading, freshness and warning state. A compact composition adapts smaller displays. The dashboard has no opaque enclosing rectangle. Existing pointer monitors toggle the dashboard's mouse-event passthrough only when crossing actual circle/card boundaries, while its transparent gaps remain noninteractive and retain hover transit. Negative-display coordinate, shape/gap and compact/normal bounds regression cases were added.
+
+The previous installed package was preserved as a verified ZIP baseline under `/private/tmp/codexmeter-reference-qa/baseline/`, without creating another application identity. UI/UX Pro Max returned its active Glassmorphism guidance; native material/tint, thin reflective borders, SF typography and contrast-aware captions apply rather than web CSS/fonts. The full suite reported 379 tests in 51 suites: 373 passed and six optional benchmarks were skipped.
+
+Round 1 used the same authorized preview path/ID. Actual layer inspection found the new glass circle/four-card arrangement materially closer to the reference, with complete metrics and no buttons/clipping. The lens was relatively small and secondary captions pale against the captured glass. The correction increases the normal lens from 360 to 420 points, adds a local navy glass tint and brightens secondary text, retaining transparency between the shapes. All 30 targeted tests in five suites passed after the correction.
+
+The user explicitly authorized the native macOS screenshot command for full-composite verification. Both ordinary and sandbox-authorized attempts returned `could not create image from display`; no composite PNG was produced. No OS permission reset, input-event bypass or new preview identity was used. Existing CUA per-window captures remain the available actual visual evidence, so full desktop composition/contrast cannot be claimed as verified.
+
+Round 2 inspected the corrected actual English dashboard layer in the same fixed preview: the 420-point lens provides a stronger reference-like focal point, local glass tint/captions are clearer, and all English metrics/status fit without touching the four cards. The scene has no buttons or decorative header/footer. These are actual per-window observations, with transparent background represented white by the capture; arbitrary desktop contrast, full composite and physical hover/drag remain outside the verified evidence.
+
+The fixed preview was stopped and checked at zero running instances. The reference-led production build was automatically installed with matching package manifest, strict signature and bundled-resource verification. The previous version is a verified ZIP at `build/installation-backups/2026-11-11-a7701b2a/CodexMeter.app.zip`. Final exact installed-app checks confirmed the glassy blue/violet orb, all four context options, same-window General/Overview navigation and restoring Overview. The application was left running without user preference/source/appearance changes. Final audit found only `/Applications/CodexMeter.app` running; registered identities remain only the installed app and the stopped fixed preview. No commit, push or publication occurred.
+
+## Mechanical reactor and technical telemetry reference — 2026-11-11
+
+The user's two newer references supersede the glass appearance above. The orb uses a white-hot center, concentric gold conductors, white mechanical radial blades, black separators and red coil details. The projected instruments use near-black local surfaces, cyan/teal rings, precise ticks and circuit linework. Reference content unrelated to CodexMeter, such as weather, calendar, media controls and the armored character, is replaced by this application's source-specific readings. The main workspace and Settings retain their native appearance. The projection still has no buttons, branding strip or bottom instruction row.
+
+The current installed glass version was preserved before implementation as a CRC, SHA-256, symlink and mode-verified archive at `/private/tmp/codexmeter-reactor-qa/baseline/CodexMeter-installed.app.zip`. No baseline application copy or new bundle identity was created. The active HUD / Sci-Fi FUI result from UI/UX Pro Max supports the dark instrument surfaces, cyan fine linework, monospaced readings and reduced-motion handling; web frameworks, ticker text and continuous UI re-layout are not adopted.
+
+Network rate samples now remain in the existing bounded 120-second, 61-sample memory history alongside CPU/GPU/RAM. This retains already-collected upload/download scalars for the projected traces, without adding sampling, disk history or rich process data. The existing history regression case also checks preservation of both rates. Response and network traces must use actual sample times and valid measurements, break across missing/invalid samples or long gaps, and avoid invented history.
+
+The code-drawn orb has ten metal trapezoid blades, thirty inner slots, four gold rings, three black spokes and red coil segments. Two native rotor groups counterrotate while the hot core breathes; click feedback retains the existing energy pulse. The central cyan instrument has 120 ticks, 36 segments and an actual primary-value progress arc. Surrounding panels use quota gauges, segmented hardware bars and timestamped response/network traces. Gold upload and cyan download markers identify the corresponding traces. Missing readings and provider-specific scope/cache/partial qualifiers remain visible. Native layers rebuild for geometry changes, stop when hidden and retain a static scene under Reduce Motion.
+
+Shared circle/panel frames are unchanged, while the old glass corners are reduced from 22 to 8 points for the technical appearance. Rendering, clipping and pointer hit shapes share this radius, with a new near-corner regression assertion. Decorative cyan/gold light and circuit connectors remain in the click-through projection layer. Drag threshold, 24-point edge spacing, saved position, delayed hover exit, right-click operations and independent menu bar popovers retain their existing implementation.
+
+The complete serial suite reported 379 tests in 51 suites: 373 passed and six optional performance tests were skipped. The signed production build passed packaged-resource verification. Both localization catalogs and the Xcode project passed property-list validation. The native SwiftPM backend with nested sandboxing disabled was required in this environment; no full-Xcode, Intel or minimum-OS execution is claimed.
+
+Round 1 reused the fixed preview path/identity with English fixtures and app-local dark appearance. The delegated Terra executor inspected the actual dashboard panel: near-black panels, teal segmented rings/ticks, twin quota gauges, hardware bars and actual activity/network plots form a technical four-panel interpretation of the reference. Primary value, status and checked time fit in the 420-point core; no observed metric clipping or overlap required correction. Its accessibility tree contained no buttons, and there was no branding or instruction strip. The tool represents transparent gaps as white in this isolated layer; this is not full desktop-composite or physical click-through evidence. Screenshots were emitted inline, without a claimed saved PNG.
+
+The same package was relaunched in place for the actual orb check. Captures showed a bright core, gold rings, white segmented blades, dark radial spacing and red coil details, recognizable from the mechanical reference at 68 points. The center brightened between captures; rotor motion and the short click impulse were not conclusively captured. Left click opened the projection layer. The four right-click options were visible, Settings opened unified General and Open workspace restored Overview. The cyan/gold fan and circuit marks were visible in the isolated light-layer image; its white transparency backdrop prevents judging actual composited projection intensity. No physical hover/drag or full-desktop capture result is claimed.
+
+Round 2 reused the identical package and identity with Chinese fixtures, app-local light appearance and a volatile DeepSeek Harness provider argument. The actual HUD retained its dark instrument styling. The full provider name, 4.2M total, 12 sessions, explicit cumulative supported-session qualifier, partial-coverage state, decode TPS, model duration and hardware/network readings fit without observed clipping or overlap. The two activity values were close but remained visibly separated. The accessibility tree again contained no buttons, with no external title/hint strips. No visual correction was required after these rounds.
+
+The helper stopped the fixed preview and verified zero preview processes. The new production package was automatically installed with strict signature, packaged-resource and complete file-manifest verification; its executable SHA-256 is `ca586bf49f30a7d3d9fd6708fb467297a592f37cdd94f7930c1ace6e92110f2f`. The previous installed package is retained as the verified ZIP `build/installation-backups/2026-11-11-010955df/CodexMeter.app.zip`. The installed application was restarted for final native checks. No commit, remote synchronization, release or Homebrew publication was performed.
+
+Final exact installed-app inspection confirmed the mechanical orb, all four visible context options and normal real-data Overview. The main window's Settings action opened General in the unified window, then Overview was restored. The installed context-menu Settings action could not be conclusively clicked because CUA reported stale elements as the menu disappeared; the identical build's fixed-preview Settings/Open workspace context actions passed earlier. The installed app was left running without saved preference/source/language/appearance changes. Final kernel process/Launch Services audit found one running installed process and only the installed/fixed-preview registrations. The fixed preview remains stopped. Full desktop composition, physical hover/drag, rotation timing and the brief click pulse retain the visual-verification limits described above.
+
+
+## Independent orb motion playground — 2026-11-11
+
+This request creates a standalone motion study rather than changing the installed
+assistant or its existing HUD. The Swift package adds a reusable OrbMotionKit library
+and an OrbMotionPlayground executable. The study defaults to a frontal 60-point cyan
+reactor with a cold white core, thin concentric rings, precision ticks, subtle violet
+return arcs and translucent dark structure. It has no projection beam or dashboard.
+The native inspector and playback panel expose live parameters and true progress.
+
+One deterministic timeline drives overlapping charge stages and reverse playback.
+Scrubbing freezes all phases; any activation/retraction continues from the visible
+progress. Rotor speed integrates the charge curve rather than resetting phase.
+One monotonic controller targets 60 Hz while charging and 30 Hz in standby, and
+cancels its task when paused, suspended or stopped. Reduce Motion removes ambient
+loops and travel while retaining brief light feedback. These frequencies are targets,
+not measured display FPS.
+
+The UI uses the existing fixed preview identity and scripts/preview-app.sh, with a
+new binary-only motion mode and verified ZIP backups. It neither rebuilds the full
+assistant for routine iteration nor replaces the installed production application.
+All five requested motion skills were installed, discovered with the skills CLI,
+read and applied where compatible with macOS 14. No iOS-only API or Metal dependency
+was introduced. Local implementation details and launch commands are documented in
+docs/motion-playground.md.
+
+Actual visual rounds found and corrected the light-mode stage selector contrast.
+Migrating from Canvas to retained Core Animation layers then exposed a collapsed
+radial gradient; its zero vertical radius was corrected and the actual 60-point and
+3x captures again showed the cold luminous core, halo, ticks and rings. Static and
+live orbs share the same layer renderer. Inline screenshots and QA observations
+cover light/dark inspectors, parameter edits, scrubbing, intermediate forward/reverse
+values, simulation, pause, loop, speed and reduced-motion controls. No saved PNG,
+physical hover event verification, frame-by-frame continuity measurement, delivered
+FPS, minimum-OS run or Xcode Preview execution is claimed.
+
+A two-second native stack sample identified layout/observation as the dominant
+initial CPU cost. Direct layer subscriptions and deduplicated 10 Hz inspector
+snapshots reduced bounded three-second foreground samples from about 38.6% to 1.58%
+of one CPU core in standby, and from about 56.3% to 21.95% during continuous looping.
+These include the debug panel and are not power/GPU/FPS benchmarks. The signed
+standalone build and all 19 timeline/lifecycle tests passed. Evidence is retained in
+work/motion-playground/qa, with application backups under build/motion-playground/backups.
+
+Final cleanup verified the retained bundle's strict signature and identifier, then
+confirmed zero preview processes. The final build and preview have the same Mach-O
+UUID and all 36 code/data section hashes; embedding the application signature changes
+whole-file bytes. The previous packages remain CRC-verified ZIPs only. The installed
+assistant, preferences and usage data were not changed by this standalone task.
+No commit, push, release or Homebrew publication was performed.
+
+
+## Projection playground — 2026-11-12
+
+The second stage extends the independent executable with Projection mode. It reuses
+all five OrbMotionKit source files unchanged and captures the user's accepted live
+70-point tuning (37% core, 1.79-point ring, hue .51, glow .98, halo13, glass .25,
+outer/inner -40/+40 degrees per second) in the app-owned ApprovedOrbParameters.
+Orb mode and its controls remain available; Projection Defaults never redesigns or
+resets that accepted source. The UI/UX Pro Max HUD / Sci-Fi FUI match informs cyan
+thin paths, restrained translucency, monospaced skeleton labels and reduced motion;
+web frameworks, ticker text, fake data and broad blur are not adopted.
+
+One deterministic progress builds source, beam, focal point, traced rings,
+connectors/cards and steady scanning at 0/15/35/45/65/85/100 percent boundaries.
+Reverse input evaluates those same values backward from the current frame. Signed
+particle flow and integrated rotor phase survive direction changes. Retained Core
+Animation layers draw the projection; no WebView, Metal or heavyweight 3D scene is
+introduced. A single monotonic driver targets60Hz transitions and30Hz ambient flow.
+Native inspector snapshots are deduplicated and limited to10Hz; direct scrub remains
+immediate. Screens with negative origins and either source edge use the selected
+visibleFrame center, with source clearance and HUD fit bounds.
+
+Desktop mode uses two reusable nonactivating panels. The decorative full-screen
+panel ignores all mouse input; the source handles active-always native tracking and
+edge snapping. Neither panel can become key/main and no hover/render path activates
+the application. The debug window is positioned opposite the source and can expose
+an embedded stage for inspection. These policies have unit coverage, not a claimed
+cross-application focus or physical click-through certification.
+
+Actual reviews inspected embedded42/45/65/80/100% states, both source directions,
+partial retraction/re-expansion, approved Orb values, Reduce Motion and live controls.
+The clipped0.25x picker was widened and rechecked. A cancelled loop sample was rejected;
+explicit loop ownership and stable app-session storage then passed a regression test
+and more than10seconds of actual observed looping, with the post-sample checkbox and
+changing progress rechecked. Source/HUD window properties reported on the active
+Space. CUA could not capture separate borderless panels/full desktop or complete a
+safe native pointer drag, so physical hover/drag, desktop composition and delivered
+FPS remain unverified. Screenshots were inline, without a saved PNG claim.
+
+All38 targeted tests passed (19 existing orb and19 projection). Three-second process
+CPU samples including the debug panel were2.06% of one core in standby,6.63% fully
+projected and27.64% during a verified bidirectional loop. These are bounded CPU
+spotchecks, not GPU, power or display-frame benchmarks. Details and evidence are in
+docs/projection-playground.md and work/projection-playground/qa. The installed
+assistant, its preferences and data remain outside this prototype's scope.
+
+Final delivery verified the signed fixed preview, matching UUID and all38 code/data
+sections, the previous-package ZIP and unchanged orb-library hashes. Automated QA
+was stopped and checked at zero processes; the verified preview was then launched
+once in Projection mode for user inspection. No production installation, commit,
+remote synchronization, release or Homebrew publication occurred.
+
+## Playground language switching — 2026-11-12
+
+The independent playground now has one native language menu at the top right for
+English and Simplified Chinese. It applies to both modes, their labels, hints,
+window titles, owned playback commands, phase/status text, HUD skeleton captions
+and accessibility descriptions. The initial selection follows the system; explicit
+choices persist only in the retained preview's preferences. No global language
+preference is changed. Stable model identifiers and one app-owned session keep
+parameters, tabs and playheads in place when the language changes.
+
+The running preview's right-edge tuning was captured before replacement and is
+recorded in work/playground-language/qa/baseline-tuning.json. A missing saved
+projection configuration starts with those values; later parameter edits persist
+in the same isolated domain. The approved orb values and animation mathematics
+are unchanged. The focused UI/UX localization query and its retry returned no
+matching entries, so the existing native controls and spacing remain the basis.
+
+Computer Use was removed during this turn, after the read-only baseline capture.
+Consequently neither round below is an actual desktop screenshot or mouse test.
+Round 1 exported 20 offscreen native hosting-view fixtures for both languages,
+both appearances and all five parameter tabs. Review found an unpainted header
+in the render path and a wrapped source-edge label. Corrections give the root a
+semantic window background, make the language menu style explicit, use the
+fixture's drawing appearance and widen the existing source-edge control.
+
+Round 2 exported the same 20 fixtures using the same preview path and identifier.
+Representative final images show the complete language menu, single-line edge
+label, translated controls and readable light/dark layouts. The exporter switches
+English to Chinese on the same session and hosting view, asserting unchanged
+parameters and paused 42% projection / 31% orb playheads after each update.
+The isolated preferences file's SHA-256 is unchanged across this render run.
+Evidence is in work/playground-language/qa/renders and round2. These images do not
+verify desktop composition, live mouse selection, hover, dragging or VoiceOver.
+
+All 45 focused tests passed: the 38 existing animation/geometry/lifecycle cases
+and seven language, format, persistence and session-preservation cases. Both
+playground test helpers include these suites. The release build, strict preview
+signature and fixed identifier passed verification. The preview matches the build's
+Mach-O UUID and all 36 file-backed code/data sections; five animation/configuration
+source hashes match the pre-language baseline. Previous previews are CRC-verified
+ZIPs. Render QA ended with zero preview processes before the final user launch.
+The standalone prototype does not replace the installed assistant, and no commit,
+remote synchronization or publication is included.
+
+## Interactive JARVIS HUD study — 2026-11-12
+
+The third stage first checked the actual source: approved orb and reversible beam
+construction were present, but the central rings/cards were synthetic and entirely
+click-through. There was no native telemetry, module interaction or source-to-HUD
+handoff policy. Baseline source hashes and the retained preview's actual saved
+Chinese/projection settings are recorded in work/hud-playground/qa. No new baseline
+desktop screenshot is claimed because Computer Use remains unavailable.
+
+The UI/UX design-system query returned a marketing/block layout that does not fit
+the requested native instrument. The narrower active HUD / Sci-Fi FUI result fits
+fine technical lines, cyan-on-dark structure and measured transparency. Its web
+frameworks, excessive neon, blinking and ticker prescriptions are not adopted.
+Animation Patterns and Apple Motion Feel inform a retained native layer renderer,
+one continuous projection playhead, retargeted critical selection feedback and a
+brief Reduce Motion alternative. Geometry, color, typography and feedback tokens
+live together in HUDLayout/HUDDesignTokens and HUDConfiguration.
+
+The new core combines precision positioning ticks, two slow opposing bands, CPU
+and memory arcs, selected-direction scan and an overview/detail focus. Four
+asymmetric primary modules are joined by lighter Activity and Controls surfaces.
+Performance and Network use inward concave boundaries; Activity and Controls use
+open brackets. This gives the functional categories distinct shapes instead of
+six identical cards. Module selection changes the core's content and connection,
+with unrelated regions subdued; returning to overview preserves global progress.
+Disabled modules remain visible but reject input and telemetry sampling. Controls
+pause decoration, change density and enter/leave detail. The HUD inspector exposes
+layout, material, type, motion, damping, visibility and pointer-state controls.
+
+Source/HUD pointer policy selects opening/closing targets without replacing the
+existing timeline. A bounded transit corridor and exit debounce allow handoff.
+Explicit transport commands and fresh pointer entries have defined ownership.
+The full-screen decorative panel stays click-through. Tight per-target panels use
+the same hit geometry as the renderer, including cut corners and concave regions;
+passive monitoring updates their mouse acceptance. They cannot become key/main.
+The large inspection window temporarily owns input, disables desktop surfaces and
+the embedded miniature, and restores the previous desktop setting on closure.
+Minimization pauses inspection animation/sampling. No keyboard event tap is used.
+
+Native providers supply host CPU deltas, memory accounting, uptime, device/OS/time
+and 64-bit physical network-interface rates. Link presence is not Internet
+reachability; first/reset samples and GPU remain unavailable. AI and Activity
+belong to a separate explicitly marked Mock provider. Native sampling runs every
+two seconds while content is visible, excludes hidden/disabled telemetry and keeps
+bounded histories. Input-only views skip layer rendering; inspectors do not
+subscribe to the animation frame rate. The installed assistant remains separate.
+
+Round 1 exported native English/Chinese, compact/standard/expanded, intermediate
+generation and detail fixtures. Review caught unwanted chords joining independent
+rotor arcs and a noisy halo. Corrections split arc subpaths, remove the overlap
+between old/new embedded scenes, make partial-progress transforms deterministic,
+add the Disabled state and differentiate peripheral boundaries. Round 2 checked
+the revised forms and disabled state; the halo was over-bright in offscreen output.
+The final correction removes its shadow and retains a quiet thin outline. Native
+text layers are synchronously displayed before final export to avoid incomplete
+offscreen caches. These are generated view renders, not desktop screenshots.
+
+Focused tests cover existing timeline integrals/reversal/lifecycle, native counter
+resets, bounded sampling, configuration persistence, layout containment/collisions,
+matching hit shapes, view-level selection/detail/return, pointer grace and explicit
+command ownership, and inspection/desktop exclusion. Native action probes exercise
+the same handler as mouse input, without claiming physical clicks. Delivered FPS,
+cross-application click-through/focus, real pointer travel, external displays,
+Retina changes, VoiceOver and long standby remain hardware/manual checks. See
+docs/hud-playground.md and work/hud-playground/qa for evidence and limits. No
+production installation, commit, push, release or Homebrew publication is included.
+
+Final HUD delivery: 66 focused tests passed; 11 final native HUD fixtures and four
+bilingual/light-dark inspector fixtures were exported and representative images
+reviewed. The thin halo preserves clear ring hierarchy without the previous noisy
+or over-bright band. The main debug scene is first in the launch order; inspection
+is opened on demand. Native data diagnostics returned real CPU/memory/network
+values while keeping GPU unavailable and AI/Activity Mock. The signed preview
+matches the release UUID and all 37 file-backed sections. Exact saved language and
+projection values match the pre-launch snapshot. Three-second CPU samples measured
+6.98% of one core in standby and 10.26% projected, including debug UI; they are not
+frame-rate or long-term idle certification. The earlier pre-launch-order sample is
+excluded. One verified preview instance remains open in projected mode for the
+user. Physical desktop interaction limits above still apply.

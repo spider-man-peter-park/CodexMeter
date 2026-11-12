@@ -15,6 +15,7 @@ final class AppSettingsObservation: ObservableObject {
         let changes: [AnyPublisher<Void, Never>] = [
             model.$provider.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
             model.$menuBarMode.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            model.$showFloatingHUD.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
             model.$options.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
             model.$detailLayout.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
             model.$refreshOptions.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
@@ -33,7 +34,7 @@ final class AppSettingsObservation: ObservableObject {
     }
 }
 
-fileprivate enum SettingsPane: String, CaseIterable, Identifiable {
+enum SettingsPane: String, CaseIterable, Identifiable {
     case general, appearance, metrics, refresh, notifications
     var id: String { rawValue }
     var title: String {
@@ -67,7 +68,7 @@ struct SettingsContent: View {
         self.init(model: model, updates: updates, pane: nil)
     }
 
-    fileprivate init(model: AppModel, updates: AppUpdates, pane: SettingsPane?) {
+    init(model: AppModel, updates: AppUpdates, pane: SettingsPane?) {
         _settings = StateObject(wrappedValue: AppSettingsObservation(model: model))
         self.updates = updates
         self.reminders = model.reminders
@@ -168,12 +169,6 @@ struct SettingsContent: View {
     private var appearanceSettings: some View {
         settingsGroup(.appearance) {
             VStack(alignment: .leading, spacing: 12) {
-                segmentedPicker(L10n.text("Menu bar mode"), selection: settings.binding(\.menuBarMode)) {
-                    Text(L10n.text("Focus")).tag(MenuBarMode.focus)
-                    Text(L10n.text("Individual metrics")).tag(MenuBarMode.individual)
-                }
-                note(L10n.text("Focus keeps one quota indicator in the menu bar. Individual metrics restores your saved metric choices."))
-                Divider()
                 HStack(spacing: 8) {
                     ForEach(DisplayPreset.allCases, id: \.self) { preset in
                         Button(L10n.lookup(preset.rawValue.capitalized)) { model.options.applyPreset(preset) }
@@ -217,12 +212,6 @@ struct SettingsContent: View {
     private var layoutSettings: some View {
         settingsGroup(.metrics) {
             VStack(alignment: .leading, spacing: 12) {
-                if model.menuBarMode == .focus {
-                    note(L10n.text("These choices apply to Individual metrics mode. Your preferences are kept while Focus is active."))
-                    Button(L10n.text("Switch to Individual metrics")) { model.menuBarMode = .individual }
-                        .buttonStyle(.bordered)
-                    Divider()
-                }
                 if model.fiveHourAvailable != false {
                     metricSettings(L10n.text("Show 5-hour quota"), isOn: settings.binding(\.options.showFiveHour),
                                    detailsTitle: L10n.text("Quota display options")) {
@@ -384,6 +373,8 @@ struct SettingsContent: View {
                 }
                 note(L10n.text("Language changes apply immediately. Existing scheduled notifications keep their original language."))
                 Divider()
+                settingsToggle(L10n.text("Show floating HUD"), isOn: settings.binding(\.showFloatingHUD))
+                Divider()
                 settingsToggle(L10n.text("Launch at Login"), isOn: Binding(get: { model.loginEnabled }, set: model.setLogin))
                 if let warning = model.loginWarning {
                     note(L10n.lookup(warning))
@@ -464,56 +455,5 @@ struct SettingsContent: View {
                 note(L10n.text("Alerts use fresh quota readings. Turn on Automatic Refresh for background monitoring. Previously scheduled card reminders can arrive while the app is closed; their status reflects the last successful read."))
             }
         }
-    }
-}
-
-final class SettingsNavigationState: ObservableObject {
-    @Published fileprivate var selected: SettingsPane? = .general
-}
-
-struct SettingsWindowView: View {
-    @StateObject private var settings: AppSettingsObservation
-    private var model: AppModel { settings.model }
-    @ObservedObject var updates: AppUpdates
-    @StateObject private var navigation: SettingsNavigationState
-
-    init(model: AppModel, updates: AppUpdates, navigation: SettingsNavigationState? = nil) {
-        _settings = StateObject(wrappedValue: AppSettingsObservation(model: model))
-        _navigation = StateObject(wrappedValue: navigation ?? SettingsNavigationState())
-        self.updates = updates
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            List(selection: $navigation.selected) {
-                ForEach(SettingsPane.allCases) { pane in
-                    Label {
-                        Text(pane.title).lineLimit(2)
-                    } icon: {
-                        Image(systemName: pane.symbol).font(.system(size: 13, weight: .regular))
-                            .foregroundStyle(navigation.selected == pane
-                                ? Color(nsColor: .selectedControlTextColor) : Color.secondary)
-                            .accessibilityHidden(true)
-                    }
-                    .tag(pane)
-                    .padding(.vertical, 4)
-                }
-            }
-            .listStyle(.sidebar)
-            .frame(width: 168)
-            Divider()
-            VStack(alignment: .leading, spacing: 0) {
-                Text((navigation.selected ?? .general).title)
-                    .font(MeterStyle.paneTitleFont)
-                    .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 8)
-                SettingsContent(model: model, updates: updates, pane: navigation.selected ?? .general)
-                    .id(navigation.selected)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(MeterStyle.background)
-        }
-        .frame(minWidth: 680, idealWidth: 720, maxWidth: 960, minHeight: 440, idealHeight: 600)
-        .environment(\.locale, L10n.locale)
-        .onAppear { model.refreshLoginStatus() }
     }
 }

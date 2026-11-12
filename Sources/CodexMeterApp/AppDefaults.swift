@@ -9,6 +9,7 @@ enum AppDefaults {
     static let refresh = RefreshOptions(quotaSeconds: 180, logSeconds: 2, displaySeconds: 60, accountSeconds: 900)
     static let language = AppLanguage.system
     static let autoRefresh = true
+    static let showFloatingHUD = true
     static let launchAtLogin = true
     static let automaticallyCheckForUpdates = false
     static let reminders: ReminderOptions = {

@@ -64,6 +64,13 @@ final class AppModel: ObservableObject {
             changed?()
         }
     }
+    @Published var showFloatingHUD: Bool {
+        didSet {
+            guard showFloatingHUD != oldValue else { return }
+            defaults.set(showFloatingHUD, forKey: "showFloatingHUD")
+            changed?()
+        }
+    }
     @Published var options: DisplayOptions {
         didSet {
             if fiveHourAvailable == false && options.showFiveHour { options.showFiveHour = false }
@@ -115,6 +122,8 @@ final class AppModel: ObservableObject {
     private var systemMetricsTask: Task<Void, Never>?
     private var systemMetricsGeneration = 0
     private var visibleDetailSurfaces: Set<DetailSurface> = []
+    private var detailSelections: [DetailSurface: DetailSection] = [:]
+    private var floatingHUDExpanded = false
     private var requestedDetailDemand = SystemMetricsDetailDemand()
     private var polling = false
     private var started = false
@@ -149,12 +158,17 @@ final class AppModel: ObservableObject {
                                  "quotaLabelStyle", "countdownStyle", "tpsDecimals", "showTPSLabel"]
         let hasLegacyDisplay = legacyDisplayKeys.contains { defaults.object(forKey: $0) != nil }
         let hasSavedPreferences = (legacyDisplayKeys + ["displaySchemaVersion", "displayOptions", "detailLayout",
-            "refreshOptions", "reminderOptions", "appLanguage", "appAppearance", "autoRefresh", "automaticallyCheckForUpdates", "menuBarMode", "assistantProvider"])
+            "refreshOptions", "reminderOptions", "appLanguage", "appAppearance", "autoRefresh", "automaticallyCheckForUpdates", "menuBarMode", "assistantProvider", "showFloatingHUD"])
             .contains { defaults.object(forKey: $0) != nil }
         initialLoginPreference = hasSavedPreferences ? nil : AppDefaults.launchAtLogin
         language = AppLanguage(rawValue: defaults.string(forKey: "appLanguage") ?? "") ?? AppDefaults.language
         appearance = AppAppearance(rawValue: defaults.string(forKey: "appAppearance") ?? "") ?? .system
-        menuBarMode = MenuBarMode(rawValue: defaults.string(forKey: "menuBarMode") ?? "") ?? .focus
+        menuBarMode = .individual
+        showFloatingHUD = defaults.object(forKey: "showFloatingHUD") as? Bool ?? AppDefaults.showFloatingHUD
+        if defaults.object(forKey: "menuBarMode") != nil,
+           defaults.string(forKey: "menuBarMode") != MenuBarMode.individual.rawValue {
+            defaults.set(MenuBarMode.individual.rawValue, forKey: "menuBarMode")
+        }
         provider = AssistantProvider(rawValue: defaults.string(forKey: "assistantProvider") ?? "") ?? .codex
         detailLayout = defaults.data(forKey: "detailLayout")
             .flatMap { try? JSONDecoder().decode(DetailLayout.self, from: $0) } ?? AppDefaults.detailLayout
@@ -294,14 +308,31 @@ final class AppModel: ObservableObject {
     }
 
     var needsSystemMetrics: Bool {
-        (provider == .codex && menuBarMode == .individual && (options.showCPU || options.showGPU || options.showRAM || options.showNetworkUpload || options.showNetworkDownload))
-            || (!visibleDetailSurfaces.isEmpty && [.cpu, .gpu, .ram, .network].contains(selectedDetailSection))
+        (provider == .codex && (options.showCPU || options.showGPU || options.showRAM || options.showNetworkUpload || options.showNetworkDownload))
+            || floatingHUDExpanded
+            || visibleDetailSections.contains { [.cpu, .gpu, .ram, .network].contains($0) }
     }
 
     var systemDetailDemand: SystemMetricsDetailDemand {
-        guard !visibleDetailSurfaces.isEmpty else { return SystemMetricsDetailDemand() }
-        return SystemMetricsDetailDemand(processes: [.cpu, .ram].contains(selectedDetailSection),
-            networkProcesses: selectedDetailSection == .network, gpuHardware: selectedDetailSection == .gpu)
+        let sections = visibleDetailSections
+        return SystemMetricsDetailDemand(processes: sections.contains { [.cpu, .ram].contains($0) },
+            networkProcesses: sections.contains(.network), gpuHardware: sections.contains(.gpu))
+    }
+
+    private var visibleDetailSections: [DetailSection] {
+        visibleDetailSurfaces.map { detailSelections[$0] ?? selectedDetailSection }
+    }
+
+    func setDetailSelection(_ section: DetailSection, on surface: DetailSurface) {
+        guard detailSelections[surface] != section else { return }
+        detailSelections[surface] = section
+        reconcileSystemDetailDemand()
+    }
+
+    func setFloatingHUDExpanded(_ expanded: Bool) {
+        guard floatingHUDExpanded != expanded else { return }
+        floatingHUDExpanded = expanded
+        reconcileSystemDetailDemand()
     }
 
     func setDetailPresented(_ presented: Bool, on surface: DetailSurface) {
@@ -375,7 +406,9 @@ final class AppModel: ObservableObject {
     static func historySnapshot(_ snapshot: SystemMetricsSnapshot) -> SystemMetricsSnapshot {
         SystemMetricsSnapshot(sampledAt: snapshot.sampledAt, cpuUsagePercent: snapshot.cpuUsagePercent,
             gpuUsagePercent: snapshot.gpuUsagePercent, memoryUsedBytes: snapshot.memoryUsedBytes,
-            memoryTotalBytes: snapshot.memoryTotalBytes)
+            memoryTotalBytes: snapshot.memoryTotalBytes,
+            networkUploadBytesPerSecond: snapshot.networkUploadBytesPerSecond,
+            networkDownloadBytesPerSecond: snapshot.networkDownloadBytesPerSecond)
     }
 
     private func cancelSystemMetrics() {

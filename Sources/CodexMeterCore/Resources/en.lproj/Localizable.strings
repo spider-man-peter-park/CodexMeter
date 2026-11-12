@@ -39,6 +39,9 @@
 "Account statistics are temporarily unavailable." = "Account statistics are temporarily unavailable.";
 "Account token statistics are currently unavailable." = "Account token statistics are currently unavailable.";
 "Account usage" = "Account usage";
+"Token usage" = "Usage";
+"View usage" = "View usage";
+"Today's local estimate and account history, with separate dates and totals." = "Today's local estimate and account history, with separate dates and totals.";
 "Account usage is cached and may be outdated." = "Account usage is cached and may be outdated.";
 "Adaptive" = "Adaptive";
 "Alerts use fresh quota readings. Turn on Automatic Refresh for background monitoring. Previously scheduled card reminders can arrive while the app is closed; their status reflects the last successful read." = "Alerts use fresh quota readings. Turn on Automatic Refresh for background monitoring. Previously scheduled card reminders can arrive while the app is closed; their status reflects the last successful read.";
@@ -513,3 +516,28 @@
 "DeepSeek Harness local projection cache could not be read." = "DeepSeek Harness local projection cache could not be read.";
 "DeepSeek Harness usage reading was cancelled." = "DeepSeek Harness usage reading was cancelled.";
 "No supported DeepSeek Harness usage checkpoints could be read. Missing or incompatible data is not zero usage." = "No supported DeepSeek Harness usage checkpoints could be read. Missing or incompatible data is not zero usage.";
+
+// Floating telemetry HUD.
+"Assistant telemetry" = "Assistant telemetry";
+"Collapse floating HUD" = "Collapse floating HUD";
+"Floating HUD" = "Floating HUD";
+"Hide floating HUD" = "Hide floating HUD";
+"Hover or click to expand. Drag to move." = "Hover or click to expand. Drag to move.";
+"Open metric details" = "Open metric details";
+"Reported tokens" = "Reported tokens";
+"Reported usage" = "Reported usage";
+"Show floating HUD" = "Show floating HUD";
+
+// Centered projection and orb interactions.
+"Core telemetry" = "Core telemetry";
+"HUD projection light" = "HUD projection light";
+"Hover to project. Left-click for an energy pulse, right-click for options. Hold and drag to move." = "Hover to project. Left-click for an energy pulse, right-click for options. Hold and drag to move.";
+"Move away to dismiss" = "Move away to dismiss";
+"Projected dashboard" = "Projected dashboard";
+"Read-only projection" = "Read-only projection";
+"Read-only telemetry" = "Read-only telemetry";
+"Remaining quota" = "Remaining quota";
+"Right-click the orb for options" = "Right-click the orb for options";
+"Telemetry projection" = "Telemetry projection";
+
+"Local activity" = "Local activity";

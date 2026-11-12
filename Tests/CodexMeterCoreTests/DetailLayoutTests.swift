@@ -3,6 +3,19 @@ import Testing
 @testable import CodexMeterCore
 
 struct DetailLayoutTests {
+    @Test func usageNavigationCombinesLegacyEntriesWithoutChangingSavedLayout() throws {
+        let layout = DetailLayout(order: [.account, .speed, .today])
+        let encoded = try JSONEncoder().encode(layout)
+        #expect(layout.navigationSections == [.today, .speed, .quota, .cpu, .gpu, .ram, .network, .settings])
+        #expect(layout.visibleSections.prefix(3) == [.account, .speed, .today])
+        #expect(try JSONDecoder().decode(DetailLayout.self, from: encoded) == layout)
+
+        let accountOnly = DetailLayout(hidden: [.today])
+        #expect(accountOnly.navigationSections.filter { $0 == .today }.count == 1)
+        let neither = DetailLayout(hidden: [.today, .account])
+        #expect(!neither.navigationSections.contains(.today))
+    }
+
     @Test func defaultLayoutKeepsTheSettingsSectionReachable() {
         let layout = DetailLayout()
         #expect(layout.order == [.quota, .today, .speed, .account, .cpu, .gpu, .ram, .network, .settings])

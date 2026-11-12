@@ -41,6 +41,12 @@ struct LocalizationTests {
         #expect(L10n.text("\(3) available", language: .simplifiedChinese) == "3 张可用")
     }
 
+    @Test func tokenUsageAndHardwareUtilizationHaveDistinctChineseLabels() {
+        #expect(L10n.text("Token usage", language: .english) == "Usage")
+        #expect(L10n.text("Token usage", language: .simplifiedChinese) == "用量")
+        #expect(L10n.text("Usage", language: .simplifiedChinese) == "使用率")
+    }
+
     @Test func interpolationKeepsArgumentsLiteralAndPreservesPercentSigns() {
         let adversarial = "模型 {1} %@ 中文"
         #expect(L10n.text("Showing \(adversarial) credit details. The account reports \(2) available credits.",

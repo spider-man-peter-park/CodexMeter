@@ -1,7 +1,7 @@
 import Foundation
 
 public enum MenuBarMode: String, CaseIterable, Codable, Sendable {
-    case focus, individual
+    case individual
 }
 
 /// Summarizes reported quota without treating a reset countdown as a fresh reading.

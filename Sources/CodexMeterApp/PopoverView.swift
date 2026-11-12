@@ -59,8 +59,9 @@ struct PopoverView: View {
             }
             Spacer()
             Menu {
-                ForEach(model.detailLayout.visibleSections) { section in
+                ForEach(model.detailLayout.navigationSections) { section in
                     Button {
+                        if section == .settings { onOpenSettings(); return }
                         model.selectedDetailSection = section
                         model.selectedQuotaMetric = nil
                     } label: {
@@ -71,7 +72,7 @@ struct PopoverView: View {
                 Image(systemName: "rectangle.stack").font(.system(size: 13)).foregroundStyle(.secondary)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden)
-            .disabled(model.detailLayout.visibleSections.isEmpty)
+            .disabled(model.detailLayout.navigationSections.isEmpty)
             .frame(width: 20).help(L10n.text("Other details")).accessibilityLabel(L10n.text("Other details"))
             Group {
                 if model.refreshing || model.accountRefreshing { ProgressView().controlSize(.small) }

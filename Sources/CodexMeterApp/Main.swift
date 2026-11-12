@@ -6,7 +6,7 @@ import ServiceManagement
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate, NSMenuItemValidation {
     private var installedLanguage: AppLanguage?
     private var statusItems: [MenuBarMetric: NSStatusItem] = [:]
     private let statusItemRenderCache = StatusItemRenderCache()
@@ -17,15 +17,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private let model: AppModel
     private let updates = AppUpdates()
     private let usageStore = AssistantUsageStore(preview: CommandLine.arguments.contains("--ui-preview-fixtures"))
-    private var settingsController: NSWindowController?
     private var workspaceController: NSWindowController?
     private let workspaceNavigation = WorkspaceNavigation()
     private var workspaceObservation: AnyCancellable?
+    private var floatingHUD: FloatingHUDController?
+    private var floatingHUDObservation: AnyCancellable?
     private var focusController: NSHostingController<ProviderPopoverView>?
     private var workspaceFrame: NSRect?
     private var detailPreviewController: NSWindowController?
     private var detailPreviewSizeObservation: NSKeyValueObservation?
-    private let settingsNavigation = SettingsNavigationState()
     private lazy var popoverContent = PopoverContentHost(popover: popover, model: model, updates: updates,
         onOpenSettings: { [weak self] in self?.showSettings(nil) },
         onOpenAbout: { [weak self] in self?.showAbout(nil) })
@@ -62,8 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         model.externalRefreshRequested = { [weak self] in self?.usageStore.refresh($0) }
         model.providerChanged = { [weak self] provider in
             guard let self else { return }
-            self.workspaceNavigation.destination = .overview
-            self.selectWorkspaceDestination(.overview)
+            if !self.workspaceNavigation.destination.isSettings { self.workspaceNavigation.select(.overview) }
+            self.selectWorkspaceDestination(self.workspaceNavigation.destination)
             self.usageStore.refresh(provider)
         }
         workspaceObservation = workspaceNavigation.$destination.removeDuplicates().sink { [weak self] destination in
@@ -96,6 +96,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             interruptionMonitor?.start()
             updates.start()
         }
+        floatingHUDObservation = model.$showFloatingHUD.removeDuplicates().sink { [weak self] visible in
+            self?.setFloatingHUDVisible(visible)
+        }
+        if CommandLine.arguments.contains("--ui-preview-fixtures"),
+           CommandLine.arguments.contains("--ui-preview-hud-expanded") {
+            floatingHUD?.setExpanded(true)
+        }
+        if CommandLine.arguments.contains("--ui-preview-fixtures"),
+           CommandLine.arguments.contains("--ui-preview-dashboard-only") {
+            floatingHUD?.showDashboardForPreview()
+        }
         if CommandLine.arguments.contains("--show-workspace") {
             DispatchQueue.main.async { [weak self] in self?.openWorkspace() }
         } else if CommandLine.arguments.contains("--ui-preview-detail-window") {
@@ -108,10 +119,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 self.showPopover(button)
             }
         }
+        if CommandLine.arguments.contains("--ui-preview-fixtures"),
+           CommandLine.arguments.contains("--ui-preview-status-click") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self else { return }
+                let flag = CommandLine.arguments.firstIndex(of: "--ui-preview-metric")
+                let metric = flag.flatMap { index in
+                    CommandLine.arguments.indices.contains(index + 1)
+                        ? MenuBarMetric(rawValue: CommandLine.arguments[index + 1]) : nil
+                }
+                let button = metric.flatMap { self.statusItems[$0]?.button }
+                    ?? self.statusItems[.tps]?.button ?? self.firstButton
+                button?.performClick(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    guard let self else { return }
+                    let workspaceWindow = self.workspaceController?.window
+                    let popoverWindow = self.popover.contentViewController.flatMap {
+                        $0.isViewLoaded ? $0.view.window : nil
+                    }
+                    let independentWindow = popoverWindow.map { $0 !== workspaceWindow } ?? false
+                    let report = "CodexMeter UI preview status click: workspaceVisible=\(workspaceWindow?.isVisible == true) popoverShown=\(self.popover.isShown) independentPopoverWindow=\(independentWindow)\n"
+                    FileHandle.standardOutput.write(Data(report.utf8))
+                }
+            }
+        }
     }
 
     private func applyAppearance() {
         NSApplication.shared.appearance = model.appearance.nativeAppearance
+    }
+
+    private func setFloatingHUDVisible(_ visible: Bool) {
+        guard visible else {
+            floatingHUD?.stop()
+            floatingHUD = nil
+            return
+        }
+        if visible && floatingHUD == nil {
+            floatingHUD = FloatingHUDController(model: model, usage: usageStore,
+                onOpenMetric: { [weak self] metric in
+                    self?.openWorkspace(metric == .focus ? .overview : .detail(metric.detailSection))
+                },
+                onOpenWorkspace: { [weak self] in self?.openWorkspace(.overview) },
+                onOpenSettings: { [weak self] in self?.showSettings(nil) },
+                onHide: { [weak self] in self?.model.showFloatingHUD = false })
+        }
+        floatingHUD?.setVisible(visible)
     }
 
     private func showDetailPreview() {
@@ -154,6 +207,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func applicationWillTerminate(_ notification: Notification) {
         finishPopoverInteraction()
+        floatingHUDObservation?.cancel()
+        floatingHUD?.stop()
         interruptionMonitor?.stop()
         model.stop()
         updates.stop()
@@ -168,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { openWorkspace() }
+        openWorkspace()
         return true
     }
 
@@ -200,10 +255,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 window.contentView = NSView(frame: NSRect(origin: .zero, size: originalContentSize))
                 window.minSize = NSSize(width: 780, height: 540)
                 window.setFrame(originalFrame, display: false)
-            } else if window === self.settingsController?.window {
-                // Keep window geometry and navigation state, but release the hidden SwiftUI graph.
-                window.contentViewController = nil
-                window.contentView = NSView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
             } else if window === self.detailPreviewController?.window {
                 self.detailPreviewSizeObservation = nil
                 window.contentViewController = nil
@@ -244,14 +295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         if installedLanguage != model.language {
             installedLanguage = model.language
             installApplicationMenu()
-            settingsController?.window?.title = L10n.text("CodexMeter Settings")
             workspaceController?.window?.title = AppMetadata.name
         }
         let descriptors = model.provider != .codex
             ? [MenuBarFormatter.providerItem(usageStore.result(for: model.provider), autoRefresh: model.autoRefresh)]
-            : model.menuBarMode == .focus
-            ? [MenuBarFormatter.focusItem(quota: model.quota, warning: model.quotaWarning,
-                autoRefresh: model.autoRefresh, now: model.now, refreshInterval: model.refreshOptions.quotaInterval)]
             : MenuBarFormatter.items(quota: model.quota, sample: model.sample,
             options: model.options, todayUsage: model.localDayUsage, now: model.now, stale: model.quotaWarning != nil,
             systemMetrics: model.systemMetrics, systemNow: model.systemMetricsNow)
@@ -335,10 +382,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             return
         }
         let metric = MenuBarMetric.allCases[sender.tag]
-        if workspaceController?.window?.isVisible == true {
-            openWorkspace(metric == .focus ? .overview : .detail(metric.detailSection))
-            return
-        }
         if popover.isShown || popoverRequested {
             if anchorMetric == metric { dismissPopover(); return }
             closePopoverImmediately(preservingIntent: true)
@@ -415,11 +458,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func showPopover(_ button: NSStatusBarButton) {
-        if workspaceController?.window?.isVisible == true {
-            let metric = MenuBarMetric.allCases[button.tag]
-            openWorkspace(metric == .focus ? .overview : .detail(metric.detailSection))
-            return
-        }
         cancelScheduledPopover()
         popoverRequested = true
         anchorMetric = MenuBarMetric.allCases[button.tag]
@@ -484,6 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         add(L10n.text("About CodexMeter"), #selector(showAbout(_:)))
         menu.addItem(.separator())
         add(L10n.text("Settings…"), #selector(showSettings(_:)), key: ",")
+        add(L10n.text("Show floating HUD"), #selector(toggleFloatingHUD(_:)))
         add(L10n.text("Check for Updates…"), #selector(checkForUpdates(_:)))
         menu.addItem(.separator())
         add(L10n.text("CodexMeter on GitHub"), #selector(openProject(_:)))
@@ -493,19 +532,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         return menu
     }
 
-    @objc private func showWorkspace(_ sender: Any?) { openWorkspace() }
+    @objc private func showWorkspace(_ sender: Any?) { openWorkspace(.overview) }
+
+    @objc private func toggleFloatingHUD(_ sender: Any?) { model.showFloatingHUD.toggle() }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleFloatingHUD(_:)) {
+            menuItem.state = model.showFloatingHUD ? .on : .off
+        }
+        return true
+    }
 
     private func selectWorkspaceDestination(_ destination: WorkspaceDestination) {
-        switch destination {
-        case .overview: model.selectedDetailSection = .quota
-        case .detail(let section): model.selectedDetailSection = section
-        }
-        model.selectedQuotaMetric = nil
+        model.setDetailSelection(destination.detailSection, on: .workspace)
     }
 
     private func openWorkspace(_ destination: WorkspaceDestination? = nil) {
         dismissPopover()
-        if let destination { workspaceNavigation.destination = destination }
+        if let destination { workspaceNavigation.select(destination) }
         selectWorkspaceDestination(workspaceNavigation.destination)
         if workspaceController == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 940, height: 700),
@@ -541,33 +585,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     @objc private func showSettings(_ sender: Any?) {
-        dismissPopover()
         model.refreshLoginStatus()
-        if settingsController == nil {
-            let controller = NSHostingController(rootView: SettingsWindowView(model: model, updates: updates,
-                navigation: settingsNavigation))
-            let window = NSWindow(contentViewController: controller)
-            window.title = L10n.text("CodexMeter Settings")
-            window.delegate = self
-            window.styleMask = [.titled, .closable, .resizable]
-            let height = min(600, max(280, (NSScreen.main?.visibleFrame.height ?? 800) - 100))
-            window.setContentSize(NSSize(width: 740, height: height))
-            window.minSize = NSSize(width: 680, height: 460)
-            window.isReleasedWhenClosed = false
-            window.setFrameAutosaveName("CodexMeter.Settings")
-            if !window.setFrameUsingName("CodexMeter.Settings") { window.center() }
-            if window.frame.width < 680 {
-                window.setContentSize(NSSize(width: 740, height: height))
-            }
-            settingsController = NSWindowController(window: window)
-        }
-        if let window = settingsController?.window, window.contentViewController == nil {
-            window.contentViewController = NSHostingController(rootView: SettingsWindowView(model: model,
-                updates: updates, navigation: settingsNavigation))
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        settingsController?.showWindow(nil)
-        settingsController?.window?.makeKeyAndOrderFront(nil)
+        openWorkspace(workspaceNavigation.settingsDestination)
     }
 
     @objc private func showAbout(_ sender: Any?) {
@@ -760,11 +779,8 @@ struct CodexMeterMain {
         }
         let preferences = AppModel()
         output["menuBarMode"] = preferences.menuBarMode.rawValue
-        let items = preferences.menuBarMode == .focus
-            ? [MenuBarFormatter.focusItem(quota: quota, warning: nil, autoRefresh: preferences.autoRefresh,
-                now: Date(), refreshInterval: preferences.refreshOptions.quotaInterval)]
-            : MenuBarFormatter.items(quota: quota, sample: logs.latestSample, options: preferences.options,
-                todayUsage: logs.todayUsage, systemMetrics: systemMetrics)
+        let items = MenuBarFormatter.items(quota: quota, sample: logs.latestSample, options: preferences.options,
+            todayUsage: logs.todayUsage, systemMetrics: systemMetrics)
         output["menuItems"] = items.map { ["metric": $0.metric.rawValue, "title": $0.title] }
         if let encoded = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .prettyPrinted]),
            let text = String(data: encoded, encoding: .utf8) { print(text) }

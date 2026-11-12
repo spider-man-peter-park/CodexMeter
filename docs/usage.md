@@ -16,9 +16,11 @@ The source picker in the overview and workspace switches between Codex, Cursor a
 
 The implementation follows [Cursor's current usage model](https://cursor.com/help/models-and-usage/usage-limits) and the DeepSeek Harness [cache schema](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-projection-cache/src/spec.ts), [token projection](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/token-meter/src/usage-projection.ts) and [session timing definition](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-stats/src/types.ts).
 
-The default **Focus mode** uses one stable source indicator and a compact overview. For Codex, its `5h` or `7d` label identifies the reported window with the lowest remaining percentage. Cursor shows `Cu` with remaining allowance, or reported allowance consumed when no percentage is available; DeepSeek Harness shows `DS` with cumulative local tokens. Open the workspace for a resizable window with permanent navigation, or use Command-0 to reopen it. The workspace remembers its last module while the app remains running; changing source returns to Overview. Closing or minimizing a system detail stops its hardware demand in Focus mode.
+Codex uses independent metric indicators in the menu bar. Existing visibility, labels and style preferences are preserved; previous Focus mode preferences migrate to individual indicators. Cursor shows `Cu` with remaining allowance, or reported allowance consumed when no percentage is available; DeepSeek Harness shows `DS` with cumulative local tokens. These additional sources each retain one indicator and a compact overview. Open the workspace for a resizable window with permanent navigation, or use Command-0 to reopen it. The workspace remembers its last module while the app remains running; changing source returns to Overview unless a Settings category is open.
 
-In **Settings → Menu bar appearance → Individual metrics**, the menu bar supports **eight independent native items**: two quota windows, TPS, today's local tokens, CPU, GPU, RAM and network. Existing choices are preserved when switching modes. Examples:
+The workspace's **Usage** page combines Today · this Mac and Account usage. Local records, input/output totals and partial estimates appear above the account chart, statistics and daily history. The figures retain their own date and coverage definitions and are never added together. Both previous workspace routes and the local-token detail open the combined content.
+
+In **Settings → Labels & visible metrics**, choose from **eight independent native items**: two quota windows, TPS, today's local tokens, CPU, GPU, RAM and network. Hardware sampling follows enabled system indicators and open system pages; closing a page releases its process details. Examples:
 
 | Item | Text |
 | --- | --- |
@@ -69,7 +71,7 @@ Missing data is `—`; a window absent from an otherwise valid account response 
 
 ## Install and run
 
-Version 0.6.0 adds the Focus workspace and independent Codex, Cursor and DeepSeek Harness sources while retaining the optional individual menu bar items and saved display preferences.
+Version 0.6.0 adds the native workspace and independent Codex, Cursor and DeepSeek Harness sources. The current source combines local and account usage and uses individual Codex menu bar items with saved display preferences.
 
 Requires macOS 14 or later and the assistant you want to monitor. Codex and Cursor need their existing app sign-in; DeepSeek Harness needs readable local session checkpoints. Cursor and DeepSeek Harness work without Codex installed. Published binaries target Apple Silicon; build from source on an Intel Mac. For the Codex source, Codex may be installed as Codex.app or integrated in ChatGPT.app. CodexMeter checks registered applications and standard install paths before falling back to `codex` in PATH.
 
@@ -113,11 +115,19 @@ The Subscription row displays the plan identifier reported by Codex with a reada
 
 ### Detail panel layout
 
-The overview uses “Know your limits. Keep your focus.” and omits the version badge; the version remains available in About. Opening details from a menu bar item does not activate a covered Settings window. The current subscription appears as a distinct nameplate. Reset credits sit at the bottom of Plan limits with their count/expiry summary and all returned details visible. Today · this Mac shows local total tokens, Input and Output, usage-record count and partial-estimate qualifiers. Account usage has the latest seven reported dates, lifetime/streak statistics and all returned daily token history in two columns. Account dates and totals stay separate from the local daily estimate. Cached, paused, unavailable and unreliable timing states have visible explanations.
+The overview uses “Know your limits. Keep your focus.” and omits the version badge; the version remains available in About. Opening details from a menu bar item preserves independent popovers even while the workspace or its Settings page is visible, without activating the main window. The current subscription appears as a distinct nameplate. Reset credits sit at the bottom of Plan limits with their count/expiry summary and all returned details visible. Usage shows Today · this Mac first, with local total tokens, Input and Output, usage-record count and partial-estimate qualifiers. Its Account usage section follows with the latest seven reported dates, lifetime/streak statistics and all returned daily token history in two columns. Account dates and totals stay separate from the local daily estimate. Cached, paused, unavailable and unreliable timing states have visible explanations.
 
-The Focus quick overview is 392 pt wide. The workspace starts around 940×700 pt, supports resizing and keeps its sidebar, page header and Settings action fixed while page content scrolls. In Individual metrics mode, detail popovers are 480 pt wide and fit their expanded content up to the available screen height. Reset credits, daily history and inline settings remain expanded.
+The additional-assistant quick overview is 392 pt wide. The workspace starts around 940×700 pt, supports resizing and keeps its sidebar, page header and Settings action fixed while page content scrolls. Detail popovers are 480 pt wide and fit their expanded content up to the available screen height. Reset credits and daily history remain expanded. Settings live in the workspace sidebar and reuse this same window; Command-comma opens the remembered category and Command-0 opens Overview.
 
 The Detail panel layout category and inline controls have been removed from Settings. Existing saved navigation order and visibility remain in effect; the Other details menu still switches between enabled modules. A menu bar click always opens its matching detail independently of this menu. The fixed footer's Settings button and Command-, remain available, and monitoring/reminders retain their own settings.
+
+### Floating HUD
+
+The floating HUD is enabled by default. Its white/gold mechanical reactor stays above ordinary windows without taking keyboard focus. Hold the left mouse button to drag it; on release it snaps to the nearest screen edge with a 24-point margin and saves its position. Hover to project a cyan light fan toward a dark instrument dashboard centered on that display, with concentric gauges and surrounding telemetry panels. Left-click triggers an energy pulse and projection feedback. Move away to collapse. Right-click the orb for workspace, Settings, refresh and visibility options. The dashboard adapts to available display space and uses a compact panel layout on smaller screens. The decorative light layer does not receive mouse events. Transparent gaps between the central instrument and surrounding panels also pass desktop clicks through; the visible data surfaces remain read-only.
+
+The selected assistant retains its own measurement definitions. Codex shows both quota windows, local daily tokens and the latest response speed; other sources show their reported allowance or supported session metrics. CPU, GPU, RAM and upload/download always describe this Mac. Missing readings remain dashes and cached/partial states retain their labels. The projection contains no clickable buttons or metric actions; all operations live in the orb's right-click menu or the unified main window. The projected HUD requests basic local telemetry, while process lists remain tied to the separate detailed pages. Closing or hiding the HUD releases that request.
+
+Use **Settings → General → Show floating HUD** or the menu checkbox to restore a hidden orb. The HUD uses a white-hot core, gold rings, mechanical radial segments and red accents for the orb; the dashboard uses dark surfaces, cyan instrument rings and fine technical linework in either app appearance, with native SF typography. Native composited animation drives the reactor and projection; hiding the orb stops its animations. Reduce Motion keeps a static reactor and an immediate projection reveal.
 
 ### Language
 
@@ -230,7 +240,7 @@ The detail panel includes an interactive line chart of the seven calendar days e
 
 ### Today on this Mac
 
-The separate **Today · this Mac** card estimates input plus output tokens recorded since midnight in the Mac's current time zone. Cached input is already part of input, and reasoning output is already part of output; their optional detail counters are never added twice. Counts follow each usage record's timestamp, so a response spanning midnight is assigned when its usage is reported. Daily totals are independent of whether a response has enough timing evidence to calculate TPS.
+The **Today · this Mac** section of Usage estimates input plus output tokens recorded since midnight in the Mac's current time zone. Cached input is already part of input, and reasoning output is already part of output; their optional detail counters are never added twice. Counts follow each usage record's timestamp, so a response spanning midnight is assigned when its usage is reported. Daily totals are independent of whether a response has enough timing evidence to calculate TPS.
 
 Only explicitly identified Desktop sessions and subagents traceable to those sessions are counted. Known CLI and automatic review sessions are excluded; unidentifiable or unsupported records are not guessed. This covers locally available logs, not a guaranteed account-wide total across devices or cloud tasks. The account's daily buckets keep their original server dates and are never added to the local estimate.
 

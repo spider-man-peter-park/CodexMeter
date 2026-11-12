@@ -7,9 +7,8 @@ public enum DetailSection: String, CaseIterable, Identifiable, Sendable {
     public var title: String {
         switch self {
         case .quota: L10n.text("Plan limits")
-        case .today: L10n.text("Today · this Mac")
+        case .today, .account: L10n.text("Token usage")
         case .speed: L10n.text("Latest response")
-        case .account: L10n.text("Account usage")
         case .cpu: L10n.text("CPU usage")
         case .gpu: L10n.text("GPU usage")
         case .ram: L10n.text("RAM usage")
@@ -37,6 +36,10 @@ public struct DetailLayout: Codable, Equatable, Sendable {
     public private(set) var order: [DetailSection]
     public private(set) var hidden: Set<DetailSection>
     public var visibleSections: [DetailSection] { order.filter { !hidden.contains($0) } }
+    public var navigationSections: [DetailSection] {
+        var seen: Set<DetailSection> = []
+        return visibleSections.map { $0 == .account ? .today : $0 }.filter { seen.insert($0).inserted }
+    }
 
     public init(order: [DetailSection] = DetailSection.allCases, hidden: Set<DetailSection> = []) {
         var seen: Set<DetailSection> = []
