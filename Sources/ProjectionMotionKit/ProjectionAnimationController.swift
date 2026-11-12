@@ -5,6 +5,7 @@ import OrbMotionKit
 @MainActor
 public final class ProjectionAnimationController: ObservableObject {
     @Published public var config = ProjectionConfig()
+    @Published public var backdropConfig = ProjectionBackdropConfiguration()
     @Published public private(set) var timeline = ProjectionTimeline()
     @Published public private(set) var reduceMotion = false
     @Published public private(set) var isSuspended = false
@@ -18,9 +19,10 @@ public final class ProjectionAnimationController: ObservableObject {
     private var started = false
     private var previousTick: Double?
 
-    public init(orbParameters: OrbParameters) {
+    public init(orbParameters: OrbParameters, dataProvider: (any HUDDataProviding)? = nil,
+                initialSnapshot: HUDDataSnapshot = HUDDataSnapshot()) {
         self.orbParameters = orbParameters.sanitized
-        hud = HUDDashboardController()
+        hud = HUDDashboardController(provider: dataProvider, initialSnapshot: initialSnapshot)
         hudSubscription = hud.$config.removeDuplicates().sink { [weak self] _ in
             DispatchQueue.main.async { [weak self] in self?.reconcile() }
         }

@@ -29,16 +29,20 @@ struct PlaygroundLanguageStateTests {
         let orb = ObjectIdentifier(session.orb), projection = ObjectIdentifier(session.projection)
         session.projection.config.beamWidth = 137
         session.projection.config.edge = .right
+        session.projection.backdropConfig.opacity = 0.37
+        session.projection.backdropConfig.blurIntensity = 0.62
         session.projection.scrub(to: 0.42)
         session.orb.scrub(to: 0.31)
         session.projection.hud.select(.performance)
         session.projection.hud.expandSelection()
         let config = session.projection.config
+        let backdrop = session.projection.backdropConfig
         let projected = session.projection.timeline, source = session.orb.timeline
         for language in [PlaygroundLanguage.simplifiedChinese, .english, .simplifiedChinese] {
             session.language = language
             #expect(ObjectIdentifier(session.orb) == orb && ObjectIdentifier(session.projection) == projection)
             #expect(session.projection.config == config && session.projection.timeline == projected)
+            #expect(session.projection.backdropConfig == backdrop)
             #expect(session.orb.timeline == source)
             #expect(session.projection.hud.selected == .performance && session.projection.hud.expanded)
             #expect(session.desktop.sourcePanel.title == language.text("Projection source orb"))
@@ -56,6 +60,35 @@ struct PlaygroundLanguageStateTests {
         let reopened = PlaygroundSession(preferences: preferences)
         #expect(reopened.projection.hud.config == first.projection.hud.config)
         #expect(reopened.projection.config == accepted)
+        #expect(preferences.object(forKey: "AppleLanguages") == nil)
+    }
+
+    @MainActor @Test func backdropSettingsPersistSeparatelyFromExistingProjectionAndHUDSettings() throws {
+        let preferences = MemoryPreferences()
+        var accepted = ProjectionConfig()
+        accepted.beamWidth = 137
+        accepted.edge = .right
+        preferences.set(try JSONEncoder().encode(accepted), forKey: "playgroundProjectionConfig")
+        let first = PlaygroundSession(preferences: preferences)
+        #expect(first.projection.backdropConfig == ProjectionBackdropConfiguration())
+        let savedProjection = preferences.data(forKey: "playgroundProjectionConfig")
+        let savedHUD = preferences.data(forKey: "playgroundHUDConfig")
+        first.projection.scrub(to: 0.42)
+        let playhead = first.projection.timeline
+        first.projection.backdropConfig.opacity = 0.37
+        first.projection.backdropConfig.tintOpacity = 0.64
+        first.projection.backdropConfig.blurIntensity = 0.28
+        first.projection.backdropConfig.isEnabled = false
+        #expect(first.projection.timeline == playhead)
+        #expect(preferences.data(forKey: "playgroundProjectionConfig") == savedProjection)
+        #expect(preferences.data(forKey: "playgroundHUDConfig") == savedHUD)
+
+        let reopened = PlaygroundSession(preferences: preferences)
+        #expect(reopened.projection.backdropConfig == first.projection.backdropConfig)
+        #expect(reopened.projection.config == accepted)
+        reopened.projection.backdropConfig = ProjectionBackdropConfiguration()
+        #expect(reopened.projection.config == accepted)
+        #expect(reopened.projection.hud.config == first.projection.hud.config)
         #expect(preferences.object(forKey: "AppleLanguages") == nil)
     }
 

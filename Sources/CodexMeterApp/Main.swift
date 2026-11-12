@@ -637,6 +637,7 @@ struct CodexMeterMain {
                   let assets = Bundle(url: appURL),
                   assets.url(forResource: "OpenAIBlossomBlack", withExtension: "png") != nil,
                   assets.url(forResource: "OpenAIBlossomWhite", withExtension: "png") != nil,
+                  FloatingHUDProjectionProfile.loadBundled() != nil,
                   Bundle.main.url(forResource: "AppIcon", withExtension: "icns") != nil else {
                 fputs("Packaged resource verification failed.\n", stderr)
                 exit(1)

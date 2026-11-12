@@ -9,6 +9,7 @@ public final class HUDDashboardView: NSView {
     public var viewportOrigin: CGPoint = .zero { didSet { sceneRoot.frame.origin = CGPoint(x: -viewportOrigin.x, y: -viewportOrigin.y) } }
     public var renderedTarget: HUDTarget?
     public var drawsContent = true { didSet { sceneRoot.isHidden = !drawsContent } }
+    public var interactionEnabled = true { didSet { invalidateGeometry(); updateTrackingAreas() } }
     public var onHoverRegion: ((Bool) -> Void)?
     public var onAction: (() -> Void)?
     public private(set) var dashboardLayout: HUDLayout?
@@ -51,7 +52,7 @@ public final class HUDDashboardView: NSView {
 
     public override var isFlipped: Bool { true }
     public override var isOpaque: Bool { false }
-    public override var acceptsFirstResponder: Bool { true }
+    public override var acceptsFirstResponder: Bool { interactionEnabled }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     public init(dashboard: HUDDashboardController) {
@@ -89,6 +90,7 @@ public final class HUDDashboardView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
 
     public func target(at localPoint: CGPoint) -> HUDTarget? {
+        guard interactionEnabled else { return nil }
         guard let layout = dashboardLayout, let timeline = lastTimeline, timeline.progress >= 0.65 else { return nil }
         let point = CGPoint(x: localPoint.x + viewportOrigin.x, y: localPoint.y + viewportOrigin.y)
         guard let target = layout.target(at: point), renderedTarget == nil || target == renderedTarget else { return nil }
@@ -127,6 +129,7 @@ public final class HUDDashboardView: NSView {
     public override func mouseDown(with event: NSEvent) { performAction(at: convert(event.locationInWindow, from: nil)) }
 
     public func performAction(at point: CGPoint) {
+        guard interactionEnabled else { return }
         guard let target = target(at: point), let layout = dashboardLayout else { return }
         let global = CGPoint(x: point.x + viewportOrigin.x, y: point.y + viewportOrigin.y)
         switch target {
@@ -153,12 +156,14 @@ public final class HUDDashboardView: NSView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        guard interactionEnabled else { return }
         if event.keyCode == 53 { dashboard.overview(); onAction?() }
         else if event.charactersIgnoringModifiers == " " { dashboard.setDecorativeMotion(!dashboard.config.decorativeMotion); onAction?() }
         else { super.keyDown(with: event) }
     }
 
     public override func accessibilityPerformPress() -> Bool {
+        guard interactionEnabled else { return false }
         guard let frame = renderedTarget.flatMap({ dashboardLayout?.frame(for: $0) }) ?? dashboardLayout?.coreFrame else { return false }
         performAction(at: CGPoint(x: frame.midX - viewportOrigin.x, y: frame.midY - viewportOrigin.y))
         return true
@@ -347,7 +352,8 @@ public final class HUDDashboardView: NSView {
             if let line = links[module] { shape(line, frame: CGRect(origin: .zero, size: layout.visibleSize), path: link, color: cyan.withAlphaComponent(0.58), width: 0.7) }
         }
         fixtureLabel.contentsScale = scale
-        fixtureLabel.frame = CGRect(x: layout.center.x - 200, y: 24, width: 400, height: 18)
+        let top = layout.moduleFrames.values.reduce(layout.coreFrame.minY) { min($0, $1.minY) }
+        fixtureLabel.frame = CGRect(x: layout.center.x - 200, y: max(2, top - 16), width: 400, height: 14)
         text(fixtureLabel, value: dashboard.snapshot.isFixture ? tr("FIXTURE · ALL METRICS SIMULATED", "演示快照 · 全部指标均为模拟") : "", size: 11, color: amber, alignment: .center)
         if case .module(let module) = renderedTarget {
             setAccessibilityRole(.button)
@@ -397,22 +403,25 @@ public final class HUDDashboardView: NSView {
 
     private func updateText(layout: HUDLayout, progress: Double) {
         let snapshot = dashboard.snapshot
+        let fixtureText = snapshot.isFixture ? tr("FIXTURE · ALL METRICS SIMULATED", "演示快照 · 全部指标均为模拟") : ""
+        text(fixtureLabel, value: fixtureText, size: 11, color: amber, alignment: .center)
         let radius = core.bounds.width / 2, center = CGPoint(x: radius, y: radius)
         let fontScale = min(1.3, max(0.9, dashboard.config.textScale))
         let expanded = dashboard.expanded && dashboard.selected != nil
         let chosen = dashboard.selected ?? .performance
         let coreY = expanded ? center.y - 52 : center.y - 58
-        text(coreTitle, value: expanded ? title(chosen).uppercased() : tr("LOCAL SYSTEM", "本机系统"), size: 11 * fontScale, color: cyan, alignment: .center)
+        let supplied = snapshot.coreContent
+        text(coreTitle, value: supplied?.title ?? (expanded ? title(chosen).uppercased() : tr("LOCAL SYSTEM", "本机系统")), size: 11 * fontScale, color: cyan, alignment: .center)
         coreTitle.frame = CGRect(x: 30, y: coreY, width: core.bounds.width - 60, height: 18)
-        let main = expanded ? expandedValue(chosen) : tr("READY", "就绪")
-        text(coreValue, value: main, size: (expanded ? 29 : 24) * fontScale, color: white, alignment: .center, weight: .light)
+        let main = supplied?.value ?? (expanded ? expandedValue(chosen) : tr("READY", "就绪"))
+        text(coreValue, value: main, size: (expanded ? 29 : 24) * fontScale, color: supplied?.warning == true ? amber : white, alignment: .center, weight: .light)
         coreValue.frame = CGRect(x: 28, y: center.y - 24, width: core.bounds.width - 56, height: 42)
-        text(coreSubtitle, value: expanded ? expandedSubtitle(chosen) : tr("HOST TELEMETRY", "本机实时遥测"), size: 11 * fontScale, color: muted, alignment: .center)
+        text(coreSubtitle, value: supplied?.subtitle ?? (expanded ? expandedSubtitle(chosen) : tr("HOST TELEMETRY", "本机实时遥测")), size: 11 * fontScale, color: muted, alignment: .center)
         coreSubtitle.frame = CGRect(x: 24, y: center.y + 21, width: core.bounds.width - 48, height: 20)
-        let footer = expanded ? expandedDetail(chosen) : "CPU \(percent(snapshot.cpuUsage))   ·   RAM \(memoryPercent())"
+        let footer = supplied?.detail ?? (expanded ? expandedDetail(chosen) : "CPU \(percent(snapshot.cpuUsage))   ·   RAM \(memoryPercent())")
         text(coreDetail, value: footer, size: 11 * fontScale, color: white.withAlphaComponent(0.75), alignment: .center)
         coreDetail.frame = CGRect(x: 24, y: center.y + 43, width: core.bounds.width - 48, height: 20)
-        text(coreAction, value: expanded ? tr("‹  Back to overview", "‹  返回总览") : tr("Select a ring sector", "选择圆环区域"), size: 11 * fontScale, color: expanded ? cyan : muted.withAlphaComponent(0.65), alignment: .center)
+        text(coreAction, value: interactionEnabled ? (expanded ? tr("‹  Back to overview", "‹  返回总览") : tr("Select a ring sector", "选择圆环区域")) : "", size: 11 * fontScale, color: expanded ? cyan : muted.withAlphaComponent(0.65), alignment: .center)
         coreAction.frame = CGRect(x: 24, y: center.y + 67, width: core.bounds.width - 48, height: 20)
         for (index, module) in HUDModule.allCases.enumerated() {
             guard let panel = panels[module], layout.moduleFrames[module] != nil else { continue }
@@ -423,6 +432,20 @@ public final class HUDDashboardView: NSView {
             let contentWidth = width - inset - 15
             let labels = panel.labels
             for item in labels { item.isHidden = false; item.string = "" }
+            if let content = snapshot.moduleContent[module] {
+                renderSuppliedContent(content, panel: panel, inset: inset, width: width, height: height, fontScale: fontScale)
+                if height >= 112, content.footnote.isEmpty {
+                    let chartFrame = CGRect(x: inset, y: height - 21, width: contentWidth, height: 13)
+                    if module == .performance {
+                        chart(panel.chart, values: snapshot.cpuHistory, frame: chartFrame, color: cyan, maximum: 1)
+                    } else if module == .network {
+                        let maximum = max(1, (snapshot.downloadHistory + snapshot.uploadHistory).max() ?? 1)
+                        chart(panel.chart, values: snapshot.downloadHistory, frame: chartFrame, color: cyan, maximum: maximum)
+                        chart(panel.secondaryChart, values: snapshot.uploadHistory, frame: chartFrame, color: violet, maximum: maximum)
+                    }
+                }
+                continue
+            }
             text(labels[0], value: title(module).uppercased(), size: 11 * fontScale, color: module == .ai ? violet : cyan, weight: .semibold)
             labels[0].frame = CGRect(x: inset, y: 12, width: width - 78, height: 17)
             let mock = snapshot.isFixture || module == .ai || module == .activity
@@ -474,6 +497,28 @@ public final class HUDDashboardView: NSView {
                 set(labels[7], "↗", x: inset + third * 2, y: bodyY + 24, width: third - 3, height: 17, size: 12 * fontScale, color: cyan)
             }
         }
+        if !interactionEnabled {
+            setAccessibilityRole(.image)
+            setAccessibilityLabel(tr("Projected dashboard", "投影仪表盘"))
+            setAccessibilityValue(([fixtureText, snapshot.coreContent?.accessibilityText] + HUDModule.allCases.map { snapshot.moduleContent[$0]?.accessibilityText }).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n"))
+        }
+    }
+
+    private func renderSuppliedContent(_ content: HUDTextContent, panel: ModuleLayers, inset: Double,
+                                       width: Double, height: Double, fontScale: Double) {
+        let labels = panel.labels
+        let available = width - inset - 15
+        let compact = height < 112
+        let color = content.warning ? amber : white
+        set(labels[0], content.title, x: inset, y: 12, width: width - inset - 70, height: 17, size: 11 * fontScale, color: cyan)
+        set(labels[1], content.badge, x: width - 68, y: 13, width: 52, height: 15, size: 9 * fontScale, color: content.warning ? amber : muted)
+        set(labels[2], content.value, x: inset, y: 35, width: available, height: compact ? 20 : 28, size: (compact ? 15 : 20) * fontScale, color: color)
+        set(labels[3], content.subtitle, x: inset, y: compact ? max(58, height - 23) : 65, width: available, height: 17, size: 11 * fontScale, color: muted)
+        if !compact {
+            set(labels[4], content.detail, x: inset, y: 84, width: available, height: 17, size: 10 * fontScale, color: muted)
+            set(labels[5], content.footnote, x: inset, y: height - 20, width: available, height: 16, size: 10 * fontScale, color: muted)
+        }
+        panel.chart.path = nil; panel.secondaryChart.path = nil
     }
 
     private func title(_ module: HUDModule) -> String {

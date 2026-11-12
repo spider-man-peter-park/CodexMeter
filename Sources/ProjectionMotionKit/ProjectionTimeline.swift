@@ -93,13 +93,15 @@ public struct ProjectionTimeline: Equatable, Sendable {
             let untilEnd = (forward ? 1 - progress : progress) * duration
             let interval = min(remaining, untilEnd)
             let previous = progress
-            progress = min(1, max(0, progress + (forward ? 1 : -1) * interval / duration))
+            let reachedEnd = interval >= untilEnd
+            progress = reachedEnd ? (forward ? 1 : 0) :
+                min(1, max(0, progress + (forward ? 1 : -1) * interval / duration))
             if ambientEnabled {
                 flowTime += duration * (Self.stageIntegral(progress, 0.85, 1) - Self.stageIntegral(previous, 0.85, 1))
                 rotorTime += 1.8 * duration * abs(Self.stageIntegral(progress, 0, 0.15) - Self.stageIntegral(previous, 0, 0.15))
             }
             remaining -= interval
-            if interval >= untilEnd {
+            if reachedEnd {
                 if looping {
                     direction = forward ? .reverse : .forward
                     lastDirection = direction

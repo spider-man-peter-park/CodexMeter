@@ -1,5 +1,9 @@
 import AppKit
+import Combine
 import CodexMeterCore
+import OrbMotionKit
+import PlaygroundLocalization
+import ProjectionMotionKit
 import SwiftUI
 
 @MainActor private final class FloatingHUDPanel: NSPanel {
@@ -40,6 +44,17 @@ import SwiftUI
     private let orbPanel: FloatingHUDPanel
     private let dashboardPanel: FloatingHUDPanel
     private let beamPanel: FloatingHUDPanel
+    private let backdropPanel: FloatingHUDPanel
+    private let backdropView = ProjectionBackdropView()
+    private let beamScene = ProjectionSceneView(drawsSkeleton: false)
+    private let dashboardScene: HUDDashboardView
+    private let projection: ProjectionAnimationController
+    private let profile: FloatingHUDProjectionProfile
+    private var projectedGeometry: FloatingHUDProjectionGeometry?
+    private var timeline = ProjectionTimeline()
+    private var subscriptions = Set<AnyCancellable>()
+    private var lifecycleObservations: [(NotificationCenter, NSObjectProtocol)] = []
+    private var suspended = false
     private let presentation: FloatingHUDPresentation
     private var orb: NSRect
     private var interaction = FloatingHUDInteraction()
@@ -61,6 +76,16 @@ import SwiftUI
          onHide: @escaping () -> Void) {
         self.model = model
         self.defaults = defaults
+        let profile = FloatingHUDProjectionProfile.loadBundled() ?? FloatingHUDProjectionProfile()
+        self.profile = profile
+        let provider = FloatingHUDDataProvider(model: model, usage: usage)
+        projection = ProjectionAnimationController(orbParameters: OrbParameters(), dataProvider: provider,
+            initialSnapshot: provider.sample(modules: Set(HUDModule.allCases), now: model.now))
+        projection.config = profile.projection
+        projection.backdropConfig = profile.backdrop
+        projection.hud.config = profile.hud
+        dashboardScene = HUDDashboardView(controller: projection)
+        dashboardScene.interactionEnabled = false
         let fallback = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
         let x = CGFloat(defaults.object(forKey: "floatingHUDOrbX") as? Double ?? Double(fallback.maxX - 92))
         let y = CGFloat(defaults.object(forKey: "floatingHUDOrbY") as? Double ?? Double(fallback.midY - FloatingHUDGeometry.orbSize / 2))
@@ -73,6 +98,11 @@ import SwiftUI
         dashboardPanel.ignoresMouseEvents = true
         beamPanel = Self.makePanel(frame: screen, title: L10n.text("HUD projection light"))
         beamPanel.ignoresMouseEvents = true
+        backdropPanel = Self.makePanel(frame: screen, title: L10n.text("Projection backdrop"))
+        backdropPanel.level = .statusBar
+        backdropPanel.ignoresMouseEvents = true
+        backdropView.configure(profile.backdrop)
+        backdropPanel.contentView = backdropView
         let orbView = FloatingHUDOrbView(model: model, presentation: presentation,
             onExpand: { [weak self] in self?.pressOrb() },
             onDragStart: { [weak self] in self?.beginDrag() },
@@ -91,18 +121,30 @@ import SwiftUI
         let orbHost = FloatingHUDTrackingView(rootView: orbView)
         orbHost.onPointer = { [weak self] in self?.updatePointer() }
         Self.install(orbHost, in: orbPanel)
-        let dashboardView = FloatingHUDView(model: model, usage: usage, presentation: presentation,
-            onOpenMetric: onOpenMetric, onOpenWorkspace: onOpenWorkspace,
-            onOpenSettings: onOpenSettings, onHide: onHide,
-            onCollapse: { [weak self] in self?.setExpanded(false) })
-        let dashboardHost = FloatingHUDTrackingView(rootView: dashboardView)
-        dashboardHost.onPointer = { [weak self] in self?.updatePointer() }
-        Self.install(dashboardHost, in: dashboardPanel)
-        Self.install(NSHostingView(rootView: FloatingHUDBeamView(presentation: presentation)), in: beamPanel)
+        dashboardPanel.contentView = dashboardScene
+        beamPanel.contentView = beamScene
+        projection.$timeline.sink { [weak self] timeline in
+            self?.timeline = timeline
+            self?.renderProjection()
+        }.store(in: &subscriptions)
+        model.$language.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in self?.projection.hud.refresh(); self?.renderProjection() }
+        }.store(in: &subscriptions)
+        model.$provider.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in self?.projection.hud.refresh() }
+        }.store(in: &subscriptions)
         screenObservation = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.reposition(snap: true) }
             }
+        observeLifecycle(NSWorkspace.shared.notificationCenter, NSWorkspace.willSleepNotification) { $0.setSuspended(true) }
+        observeLifecycle(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { $0.setSuspended(false) }
+        observeLifecycle(NotificationCenter.default, NSApplication.didHideNotification) { $0.setSuspended(true) }
+        observeLifecycle(NotificationCenter.default, NSApplication.didUnhideNotification) { $0.setSuspended(false) }
+        observeLifecycle(NSWorkspace.shared.notificationCenter, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification) {
+            $0.projection.setReduceMotion(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            $0.renderProjection()
+        }
     }
 
     deinit {
@@ -110,13 +152,14 @@ import SwiftUI
         if let screenObservation { NotificationCenter.default.removeObserver(screenObservation) }
         if let localPointerMonitor { NSEvent.removeMonitor(localPointerMonitor) }
         if let globalPointerMonitor { NSEvent.removeMonitor(globalPointerMonitor) }
+        for (center, token) in lifecycleObservations { center.removeObserver(token) }
     }
 
     private static func makePanel(frame: NSRect, title: String) -> FloatingHUDPanel {
         let panel = FloatingHUDPanel(contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = title
-        panel.level = .floating
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -141,6 +184,8 @@ import SwiftUI
         visible = value
         presentation.visible = value
         if value {
+            projection.setReduceMotion(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            projection.start()
             reposition(snap: true)
             orbPanel.orderFrontRegardless()
             writePreviewGeometryReport(stage: "initial")
@@ -150,9 +195,11 @@ import SwiftUI
             interaction.setExpanded(false)
             presentation.expanded = false
             model.setFloatingHUDExpanded(false)
+            projection.stop()
+            projection.reset()
             updateDashboardMouseEvents()
             removePointerMonitors()
-            for panel in [beamPanel, dashboardPanel, orbPanel] { panel.orderOut(nil) }
+            for panel in [beamPanel, dashboardPanel, backdropPanel, orbPanel] { panel.orderOut(nil) }
         }
     }
 
@@ -172,8 +219,10 @@ import SwiftUI
         removePointerMonitors()
         pointerRetained = true
         setExpanded(true)
+        projection.scrub(to: 1)
         orbPanel.orderOut(nil)
         beamPanel.orderOut(nil)
+        backdropPanel.orderOut(nil)
         dashboardPanel.orderFrontRegardless()
     }
 
@@ -183,7 +232,10 @@ import SwiftUI
         stopped = true
         if let screenObservation { NotificationCenter.default.removeObserver(screenObservation) }
         screenObservation = nil
-        for panel in [beamPanel, dashboardPanel, orbPanel] {
+        subscriptions.removeAll()
+        for (center, token) in lifecycleObservations { center.removeObserver(token) }
+        lifecycleObservations.removeAll()
+        for panel in [beamPanel, dashboardPanel, backdropPanel, orbPanel] {
             panel.contentView = nil
             panel.close()
         }
@@ -224,16 +276,16 @@ import SwiftUI
         if tracking {
             pointerRetained = true
         } else if visible {
-            pointerRetained = !presentation.layout.containsRetentionPoint(NSEvent.mouseLocation)
+            pointerRetained = !(projectedGeometry?.containsRetentionPoint(NSEvent.mouseLocation) ?? false)
             updatePointer()
         }
     }
 
     private func pointerEvent(_ event: NSEvent) {
-        guard visible, interaction.expanded, !menuTracking, !dashboardPreviewOnly else { return }
+        guard visible, !suspended, interaction.expanded, !menuTracking, !dashboardPreviewOnly else { return }
         updateDashboardMouseEvents()
         if event.type != .mouseMoved,
-           !presentation.layout.containsInteractivePoint(NSEvent.mouseLocation) {
+           !orb.contains(NSEvent.mouseLocation) {
             setExpanded(false)
             return
         }
@@ -241,7 +293,7 @@ import SwiftUI
     }
 
     private func updatePointer() {
-        guard visible, !stopped, !interaction.dragging, !menuTracking, !dashboardPreviewOnly else { return }
+        guard visible, !stopped, !suspended, !interaction.dragging, !menuTracking, !dashboardPreviewOnly else { return }
         updateDashboardMouseEvents()
         if suppressHoverUntilExit {
             if !presentation.layout.orbFrame.contains(NSEvent.mouseLocation) {
@@ -250,7 +302,7 @@ import SwiftUI
             }
             return
         }
-        let retained = presentation.layout.containsRetentionPoint(NSEvent.mouseLocation)
+        let retained = projectedGeometry?.containsRetentionPoint(NSEvent.mouseLocation) ?? false
         guard retained != pointerRetained else { return }
         pointerRetained = retained
         collapseTask?.cancel()
@@ -262,7 +314,7 @@ import SwiftUI
             collapseTask = Task { [weak self] in
                 do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
                 guard let self, self.visible else { return }
-                let inside = self.presentation.layout.containsRetentionPoint(NSEvent.mouseLocation)
+                let inside = self.projectedGeometry?.containsRetentionPoint(NSEvent.mouseLocation) ?? false
                 if inside {
                     self.pointerRetained = true
                     self.interaction.pointerEntered()
@@ -274,37 +326,20 @@ import SwiftUI
     }
 
     private func updateDashboardMouseEvents() {
-        let ignore = !dashboardPreviewOnly && (!visible || !interaction.expanded
-            || !presentation.layout.containsDashboardPoint(NSEvent.mouseLocation))
-        if dashboardPanel.ignoresMouseEvents != ignore { dashboardPanel.ignoresMouseEvents = ignore }
+        dashboardPanel.ignoresMouseEvents = true
     }
 
     private func applyExpansion(reveal: Bool) {
         presentation.expanded = interaction.expanded
-        model.setFloatingHUDExpanded(interaction.expanded)
         reposition(snap: false)
         if interaction.expanded {
             installPointerMonitors()
-            if reveal {
-                beamPanel.alphaValue = 0
-                dashboardPanel.alphaValue = 0
-            }
-            beamPanel.orderFrontRegardless()
-            dashboardPanel.orderFrontRegardless()
-            orbPanel.orderFrontRegardless()
-            if reveal {
-                let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.24
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = duration
-                    beamPanel.animator().alphaValue = 1
-                    dashboardPanel.animator().alphaValue = 1
-                }
-            }
+            projection.expand()
         } else {
             removePointerMonitors()
-            beamPanel.orderOut(nil)
-            dashboardPanel.orderOut(nil)
+            projection.retract()
         }
+        renderProjection()
     }
 
     private func reposition(snap: Bool) {
@@ -315,8 +350,70 @@ import SwiftUI
         presentation.layout = layout
         orbPanel.setFrame(layout.orbFrame, display: true)
         beamPanel.setFrame(layout.screenFrame, display: true)
-        if let dashboardFrame = layout.dashboardFrame { dashboardPanel.setFrame(dashboardFrame, display: true) }
+        let geometry = FloatingHUDProjectionGeometry(orb: orb, visibleFrame: bounds, profile: profile)
+        projectedGeometry = geometry
+        dashboardPanel.setFrame(geometry.dashboardFrame, display: true)
+        dashboardScene.viewportOrigin = geometry.viewportOrigin
+        dashboardScene.frame = CGRect(origin: .zero, size: geometry.dashboardFrame.size)
+        beamScene.frame = CGRect(origin: .zero, size: bounds.size)
+        let fullScreen = NSScreen.screens.first(where: { $0.visibleFrame == bounds })?.frame ?? bounds
+        backdropPanel.setFrame(fullScreen, display: true)
         updateDashboardMouseEvents()
+        renderProjection()
+    }
+
+    private func renderProjection() {
+        guard visible, !stopped, !suspended, let geometry = projectedGeometry else { return }
+        let language: PlaygroundLanguage = model.language.resolvedCode() == "zh-Hans" ? .simplifiedChinese : .english
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        model.setFloatingHUDExpanded(interaction.expanded || timeline.progress > 0.45)
+        let backdropOpacity = dashboardPreviewOnly ? 0 : profile.backdrop.opacity(at: timeline.progress)
+        if backdropOpacity > 0 {
+            backdropPanel.alphaValue = CGFloat(backdropOpacity)
+            if !backdropPanel.isVisible { backdropPanel.orderFrontRegardless() }
+        } else { backdropPanel.orderOut(nil) }
+        let showBeam = !dashboardPreviewOnly && timeline.sample.beamExtension > 0
+        let showDashboard = timeline.progress > 0.35
+        beamScene.render(geometry: geometry.projection, config: profile.projection, orb: projection.orbParameters,
+            timeline: timeline, reducedMotion: reduced, language: language)
+        dashboardScene.language = language
+        dashboardScene.render(geometry: geometry.projection, timeline: timeline, reducedMotion: reduced)
+        var ordered = false
+        if showBeam {
+            if !beamPanel.isVisible { beamPanel.orderFrontRegardless(); ordered = true }
+        } else { beamPanel.orderOut(nil) }
+        if showDashboard {
+            if !dashboardPanel.isVisible { dashboardPanel.orderFrontRegardless(); ordered = true }
+        } else { dashboardPanel.orderOut(nil) }
+        if ordered, !dashboardPreviewOnly { orbPanel.orderFrontRegardless() }
+    }
+
+    private func observeLifecycle(_ center: NotificationCenter, _ name: Notification.Name,
+                                  action: @escaping (FloatingHUDController) -> Void) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                action(self)
+            }
+        }
+        lifecycleObservations.append((center, token))
+    }
+
+    private func setSuspended(_ value: Bool) {
+        suspended = value
+        projection.suspend(value)
+        presentation.visible = visible && !value
+        if value {
+            collapseTask?.cancel()
+            removePointerMonitors()
+            model.setFloatingHUDExpanded(false)
+            for panel in [orbPanel, beamPanel, dashboardPanel, backdropPanel] { panel.orderOut(nil) }
+        } else if visible, !stopped {
+            reposition(snap: false)
+            if interaction.expanded { installPointerMonitors() }
+            if !dashboardPreviewOnly { orbPanel.orderFrontRegardless() }
+            renderProjection()
+        }
     }
 
     private func beginDrag() {

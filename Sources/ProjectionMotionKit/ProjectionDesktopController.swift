@@ -13,7 +13,9 @@ public final class ProjectionPanel: NSPanel {
         self.title = title
         isOpaque = false; backgroundColor = .clear; hasShadow = false
         hidesOnDeactivate = false; isReleasedWhenClosed = false
-        isFloatingPanel = true; level = .floating
+        isFloatingPanel = true
+        // Keep the orb and instruments above the backdrop, including over system chrome.
+        level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         self.ignoresMouseEvents = ignoresMouseEvents
         acceptsMouseMovedEvents = !ignoresMouseEvents
@@ -37,6 +39,9 @@ public final class ProjectionDesktopController: ObservableObject {
     @Published public private(set) var inspectionActive = false
     public let sourcePanel = ProjectionPanel(title: "Projection source orb", ignoresMouseEvents: false)
     public let projectionPanel = ProjectionPanel(title: "Holographic projection", ignoresMouseEvents: true)
+    public let backdropPanel = ProjectionPanel(title: "Projection backdrop", ignoresMouseEvents: true)
+    private let backdropView = ProjectionBackdropView()
+    private var backdropConfig = ProjectionBackdropConfiguration()
     private let sourceView = ProjectionOrbInputView()
     private let scene: ProjectionSceneView
     private let controller: ProjectionAnimationController
@@ -81,6 +86,8 @@ public final class ProjectionDesktopController: ObservableObject {
         timeline = controller.timeline
         sourcePanel.contentView = sourceView
         projectionPanel.contentView = scene
+        backdropPanel.level = .statusBar
+        backdropPanel.contentView = backdropView
         sourceView.diameter = controller.orbParameters.diameter
         sourceView.onHover = { [weak self] inside in
             self?.controller.trackSourcePointer(inside)
@@ -94,6 +101,12 @@ public final class ProjectionDesktopController: ObservableObject {
         }.store(in: &subscriptions)
         controller.$timeline.sink { [weak self] value in self?.timeline = value; self?.render() }
             .store(in: &subscriptions)
+        controller.$backdropConfig.removeDuplicates().sink { [weak self] value in
+            guard let self else { return }
+            self.backdropConfig = value.sanitized
+            self.backdropView.configure(self.backdropConfig)
+            self.render()
+        }.store(in: &subscriptions)
         controller.$reduceMotion.sink { [weak self] value in self?.reducedMotion = value; self?.render() }
             .store(in: &subscriptions)
         controller.$lastAction.sink { [weak self] action in
@@ -129,6 +142,7 @@ public final class ProjectionDesktopController: ObservableObject {
         language = value
         sourcePanel.title = value.text("Projection source orb")
         projectionPanel.title = value.text("Holographic projection")
+        backdropPanel.title = value.text("Projection backdrop")
         sourceView.language = value
         render()
     }
@@ -136,7 +150,7 @@ public final class ProjectionDesktopController: ObservableObject {
         running = false
         removeMouseTracking()
         controller.stop(); controller.clearPointer(); sourceView.clearPointerTracking()
-        sourcePanel.orderOut(nil); projectionPanel.orderOut(nil)
+        sourcePanel.orderOut(nil); projectionPanel.orderOut(nil); backdropPanel.orderOut(nil)
         hideInputSurfaces()
         interaction = HUDInteractionState(); publishInteraction()
         updateWindowState()
@@ -152,7 +166,7 @@ public final class ProjectionDesktopController: ObservableObject {
         controller.clearPointer(); sourceView.clearPointerTracking()
         if value { arrange(); render() }
         else {
-            sourcePanel.orderOut(nil); projectionPanel.orderOut(nil); hideInputSurfaces()
+            sourcePanel.orderOut(nil); projectionPanel.orderOut(nil); backdropPanel.orderOut(nil); hideInputSurfaces()
             pointerTimer?.invalidate(); pointerTimer = nil
             interaction = HUDInteractionState(); publishInteraction(); updateWindowState()
         }
@@ -185,7 +199,7 @@ public final class ProjectionDesktopController: ObservableObject {
     private func updateSuspension() {
         controller.suspend(asleep || appHidden)
         if asleep || appHidden {
-            sourcePanel.orderOut(nil); projectionPanel.orderOut(nil); hideInputSurfaces()
+            sourcePanel.orderOut(nil); projectionPanel.orderOut(nil); backdropPanel.orderOut(nil); hideInputSurfaces()
             pointerTimer?.invalidate(); pointerTimer = nil
             updateWindowState()
         }
@@ -210,6 +224,7 @@ public final class ProjectionDesktopController: ObservableObject {
         let moved = sourcePanel.frame != g.orbFrame
         sourcePanel.setFrame(g.orbFrame, display: true)
         projectionPanel.setFrame(g.visibleFrame, display: true)
+        backdropPanel.setFrame(screen.frame, display: true)
         scene.frame = CGRect(origin: .zero, size: g.visibleFrame.size)
         if moved { sourceView.clearPointerTracking(); controller.clearPointer() }
         arrangeInputSurfaces()
@@ -220,6 +235,11 @@ public final class ProjectionDesktopController: ObservableObject {
         guard running, enabled, !asleep, !appHidden, let geometry else { return }
         sourceView.orbView.update(parameters: controller.orbParameters, progress: timeline.sample.orbActivation,
                                  ambientTime: timeline.ambientTime, rotorTime: timeline.rotorTime, reducedMotion: reducedMotion)
+        let backdropOpacity = CGFloat(backdropConfig.opacity(at: timeline.progress))
+        if backdropOpacity > 0 {
+            if backdropPanel.alphaValue != backdropOpacity { backdropPanel.alphaValue = backdropOpacity }
+            if !backdropPanel.isVisible { backdropPanel.orderFrontRegardless() }
+        } else if backdropPanel.isVisible { backdropPanel.orderOut(nil) }
         if timeline.sample.beamExtension > 0 {
             if !projectionPanel.isVisible { projectionPanel.orderFrontRegardless() }
             scene.render(geometry: geometry, config: config, orb: controller.orbParameters, timeline: timeline, reducedMotion: reducedMotion, language: language)

@@ -21,6 +21,8 @@ public struct HUDActivityEvent: Equatable, Sendable, Identifiable {
 }
 
 public struct HUDDataSnapshot: Equatable, Sendable {
+    public var coreContent: HUDTextContent?
+    public var moduleContent: [HUDModule: HUDTextContent] = [:]
     public var date = Date()
     public var deviceName = "Mac"
     public var osVersion = "macOS"

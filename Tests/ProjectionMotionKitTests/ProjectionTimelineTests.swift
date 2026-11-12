@@ -126,6 +126,28 @@ struct ProjectionTimelineTests {
         #expect(t.progress == 1)
     }
 
+    @Test func exactProjectionEndpointsRemoveTheBackdropAfterFrameSizedRetraction() {
+        for (duration, interval) in [(0.8, 0.023), (1.1, 0.019), (2.3, 1.0 / 60)] {
+            var config = ProjectionConfig()
+            config.closeDuration = duration
+            var timeline = ProjectionTimeline()
+            timeline.scrub(to: 1)
+            timeline.reverse()
+            for _ in 0...Int(ceil(duration / interval)) {
+                timeline.advance(seconds: interval, config: config)
+            }
+            #expect(timeline.direction == .idle)
+            #expect(timeline.progress == 0)
+            #expect(timeline.sample.orbActivation == 0)
+
+            timeline.forward()
+            for _ in 0...Int(ceil(config.openDuration / interval)) {
+                timeline.advance(seconds: interval, config: config)
+            }
+            #expect(timeline.direction == .idle && timeline.progress == 1)
+        }
+    }
+
     @Test func invalidInputAndResetCannotLeaveResidualProjection() throws {
         var t = ProjectionTimeline(); let baseline = t
         for value in [Double.nan, .infinity, -1, 0] { t.advance(seconds: value, config: ProjectionConfig()) }

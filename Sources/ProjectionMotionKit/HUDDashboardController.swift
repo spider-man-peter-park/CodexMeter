@@ -18,8 +18,9 @@ public final class HUDDashboardController: ObservableObject {
     private let provider: any HUDDataProviding
     private var sampler: Task<Void, Never>?
 
-    public init(provider: (any HUDDataProviding)? = nil) {
+    public init(provider: (any HUDDataProviding)? = nil, initialSnapshot: HUDDataSnapshot = HUDDataSnapshot()) {
         self.provider = provider ?? NativeHUDDataProvider()
+        snapshot = initialSnapshot
     }
 
     deinit { sampler?.cancel() }

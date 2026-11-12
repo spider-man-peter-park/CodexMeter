@@ -87,6 +87,22 @@ the explicitly accepted snapshot above.
 
 ## Desktop and stage controls
 
+An active desktop projection dims and softly blurs its entire selected display
+behind the orb and HUD. The black translucent backdrop uses a native behind-window
+visual effect and covers the display's full frame, including the menu bar and Dock
+area. Its fade follows the existing activation playhead in both directions; a
+retracted, disabled, hidden or stopped projection leaves no backdrop. It ignores
+mouse input and cannot become the key or main window. Other displays keep their
+normal appearance. The embedded inspection stage does not dim the desktop.
+
+The **Backdrop** parameter tab offers a backdrop switch and live percentage sliders
+for overall opacity, black tint and background blur. Opacity at 0% removes the
+backdrop; 100% applies the full configured effect. Background blur crossfades the
+native material from clear to its full effect. **Backdrop defaults** restores only
+these controls, leaving the beam, orb, HUD and current playhead in place. Values are
+saved separately and restored on the next launch. Both languages show the current
+percentage beside each slider.
+
 Desktop projection starts enabled. The source is a separate 70-point orb near the
 left screen edge; the inspector starts on the opposite side so the middle stays
 available for the HUD. Left/Right mirrors the source and beam and adjusts the HUD's
@@ -147,7 +163,7 @@ and complete cycles independently of frame partitioning.
   layers with disabled implicit animation; no WebView, shader or 3D engine.
 - `ProjectionOrbInputView`: native active-always tracking and drag handling, using
   the existing `OrbLayerView` for all source drawing.
-- `ProjectionDesktopController`: two retained nonactivating panels, screen changes,
+- `ProjectionDesktopController`: retained nonactivating source, backdrop and scene panels, screen changes,
   edge positioning, sleep/hide suspension, and teardown.
 - `ProjectionDebugPanel`: native controls with a separate deduplicated 10 Hz
   inspector snapshot; direct commands and scrubbing update immediately.

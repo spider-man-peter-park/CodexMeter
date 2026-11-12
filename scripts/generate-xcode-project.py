@@ -23,9 +23,12 @@ for path in sorted((root / 'Sources/CodexMeterApp').glob('*.swift')):
     files.append(obj(relative, f'isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {q(relative)}; sourceTree = SOURCE_ROOT;'))
     builds.append(obj('build:' + relative, f'isa = PBXBuildFile; fileRef = {files[-1]};'))
 resourceBuilds = []
-for path in sorted((root / 'Sources/CodexMeterApp/Resources').glob('*.png')):
+for path in sorted((root / 'Sources/CodexMeterApp/Resources').iterdir()):
+    if path.suffix not in {'.png', '.json'}:
+        continue
     relative = path.relative_to(root).as_posix()
-    files.append(obj(relative, f'isa = PBXFileReference; lastKnownFileType = image.png; path = {q(relative)}; sourceTree = SOURCE_ROOT;'))
+    fileType = 'image.png' if path.suffix == '.png' else 'text.json'
+    files.append(obj(relative, f'isa = PBXFileReference; lastKnownFileType = {fileType}; path = {q(relative)}; sourceTree = SOURCE_ROOT;'))
     resourceBuilds.append(obj('build:' + relative, f'isa = PBXBuildFile; fileRef = {files[-1]};'))
 for path in sorted((root / 'Resources').glob('*.icns')):
     relative = path.relative_to(root).as_posix()
@@ -33,10 +36,15 @@ for path in sorted((root / 'Resources').glob('*.icns')):
     resourceBuilds.append(obj('build:' + relative, f'isa = PBXBuildFile; fileRef = {files[-1]};'))
 product = obj('product', 'isa = PBXFileReference; explicitFileType = wrapper.application; path = CodexMeter.app; sourceTree = BUILT_PRODUCTS_DIR;')
 package = obj('package', 'isa = XCLocalSwiftPackageReference; relativePath = .;')
-packageProduct = obj('packageProduct', f'isa = XCSwiftPackageProductDependency; package = {package}; productName = CodexMeterCore;')
-framework = obj('frameworkBuild', f'isa = PBXBuildFile; productRef = {packageProduct};')
+packageProducts, frameworkBuilds = [], []
+for index, name in enumerate(['CodexMeterCore', 'ProjectionMotionKit', 'OrbMotionKit']):
+    key = 'packageProduct' if index == 0 else 'packageProduct:' + name
+    productDependency = obj(key, f'isa = XCSwiftPackageProductDependency; package = {package}; productName = {name};')
+    packageProducts.append(productDependency)
+    key = 'frameworkBuild' if index == 0 else 'frameworkBuild:' + name
+    frameworkBuilds.append(obj(key, f'isa = PBXBuildFile; productRef = {productDependency};'))
 sources = obj('sources', f'isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ({",".join(builds)},); runOnlyForDeploymentPostprocessing = 0;')
-frameworks = obj('frameworks', f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({framework},); runOnlyForDeploymentPostprocessing = 0;')
+frameworks = obj('frameworks', f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({",".join(frameworkBuilds)},); runOnlyForDeploymentPostprocessing = 0;')
 resources = obj('resources', f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({",".join(resourceBuilds)},); runOnlyForDeploymentPostprocessing = 0;')
 products = obj('products', f'isa = PBXGroup; children = ({product},); name = Products; sourceTree = "<group>";')
 group = obj('group', f'isa = PBXGroup; children = ({",".join(files)},{products},); sourceTree = "<group>";')
@@ -52,7 +60,7 @@ for name in ['Debug', 'Release']:
     }}; name = {name};'''))
 pc = obj('projectConfigs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(projectConfigs)},); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 tc = obj('targetConfigs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(targetConfigs)},); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
-target = obj('target', f'isa = PBXNativeTarget; buildConfigurationList = {tc}; buildPhases = ({sources},{frameworks},{resources},); buildRules = (); dependencies = (); name = CodexMeter; packageProductDependencies = ({packageProduct},); productName = CodexMeter; productReference = {product}; productType = "com.apple.product-type.application";')
+target = obj('target', f'isa = PBXNativeTarget; buildConfigurationList = {tc}; buildPhases = ({sources},{frameworks},{resources},); buildRules = (); dependencies = (); name = CodexMeter; packageProductDependencies = ({",".join(packageProducts)},); productName = CodexMeter; productReference = {product}; productType = "com.apple.product-type.application";')
 project = obj('project', f'isa = PBXProject; attributes = {{ LastUpgradeCheck = 1600; }}; buildConfigurationList = {pc}; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en,Base,"zh-Hans",); mainGroup = {group}; packageReferences = ({package},); productRefGroup = {products}; projectDirPath = ""; projectRoot = ""; targets = ({target},);')
 projectDir = root / 'CodexMeter.xcodeproj'
 projectDir.mkdir(exist_ok=True)

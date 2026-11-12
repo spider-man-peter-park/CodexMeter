@@ -14,7 +14,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "CodexMeterCore", resources: [.process("Resources")]),
-        .executableTarget(name: "CodexMeterApp", dependencies: ["CodexMeterCore"],
+        .executableTarget(name: "CodexMeterApp", dependencies: ["CodexMeterCore", "ProjectionMotionKit", "OrbMotionKit", "PlaygroundLocalization"],
                           resources: [.process("Resources")]),
         .target(name: "PlaygroundLocalization"),
         .target(name: "OrbMotionKit", dependencies: ["PlaygroundLocalization"]),

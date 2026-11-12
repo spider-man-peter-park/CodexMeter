@@ -25,6 +25,7 @@ final class PlaygroundSession: ObservableObject {
     private let preferences: UserDefaults?
     private var configurationSubscription: AnyCancellable?
     private var hudConfigurationSubscription: AnyCancellable?
+    private var backdropConfigurationSubscription: AnyCancellable?
 
     init(preferences: UserDefaults? = .standard, languageOverride: PlaygroundLanguage? = nil) {
         self.preferences = preferences
@@ -41,6 +42,10 @@ final class PlaygroundSession: ObservableObject {
            let saved = try? JSONDecoder().decode(HUDConfiguration.self, from: data) {
             projection.hud.config = saved.sanitized
         }
+        if let data = preferences?.data(forKey: "playgroundBackdropConfig"),
+           let saved = try? JSONDecoder().decode(ProjectionBackdropConfiguration.self, from: data) {
+            projection.backdropConfig = saved.sanitized
+        }
         desktop = ProjectionDesktopController(controller: projection)
         desktop.setLanguage(language)
         configurationSubscription = projection.$config.removeDuplicates().sink { config in
@@ -50,6 +55,10 @@ final class PlaygroundSession: ObservableObject {
         hudConfigurationSubscription = projection.hud.$config.removeDuplicates().sink { config in
             guard let data = try? JSONEncoder().encode(config.sanitized) else { return }
             preferences?.set(data, forKey: "playgroundHUDConfig")
+        }
+        backdropConfigurationSubscription = projection.$backdropConfig.removeDuplicates().sink { config in
+            guard let data = try? JSONEncoder().encode(config.sanitized) else { return }
+            preferences?.set(data, forKey: "playgroundBackdropConfig")
         }
         if CommandLine.arguments.contains("--hud-demo") {
             projection.scrub(to: 1)

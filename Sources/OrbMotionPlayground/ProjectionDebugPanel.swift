@@ -8,14 +8,18 @@ import SwiftUI
 @MainActor
 private final class ProjectionDebugOptions: ObservableObject {
     @Published var config: ProjectionConfig
+    @Published var backdropConfig: ProjectionBackdropConfiguration
     @Published var pane = "Beam"
     @Published var reduceMotion = false
     private var subscription: AnyCancellable?
+    private var backdropSubscription: AnyCancellable?
     init(controller: ProjectionAnimationController, pane: String? = nil) {
         config = controller.config
+        backdropConfig = controller.backdropConfig
         if CommandLine.arguments.contains("--hud-demo") { self.pane = "HUD" }
         if let pane { self.pane = pane }
         subscription = controller.$config.removeDuplicates().sink { [weak self] in self?.config = $0 }
+        backdropSubscription = controller.$backdropConfig.removeDuplicates().sink { [weak self] in self?.backdropConfig = $0 }
     }
 }
 
@@ -41,7 +45,11 @@ struct ProjectionDebugPanel: View {
                         .font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(language.text("Defaults")) { options.config = ProjectionConfig(); controller.reset() }
+                Button(language.text("Defaults")) {
+                    options.config = ProjectionConfig()
+                    options.backdropConfig = ProjectionBackdropConfiguration()
+                    controller.reset()
+                }
                     .controlSize(.small).help(language.text("Restore projection parameters; preserve the approved orb"))
             }
             HStack {
@@ -83,6 +91,7 @@ struct ProjectionDebugPanel: View {
             Picker(language.text("Projection parameters"), selection: $options.pane) {
                 Text(language.text("Beam")).tag("Beam")
                 Text(language.text("HUD")).tag("HUD")
+                Text(language.text("Backdrop")).tag("Backdrop")
                 Text(language.text("Timing")).tag("Timing")
             }.pickerStyle(.segmented).labelsHidden()
             ScrollView {
@@ -101,6 +110,8 @@ struct ProjectionDebugPanel: View {
                         integer("Volume layers", value: $options.config.beamLayers, range: 1...5)
                     } else if options.pane == "HUD" {
                         HUDDebugControls(projection: controller, dashboard: controller.hud)
+                    } else if options.pane == "Backdrop" {
+                        ProjectionBackdropControls(configuration: $options.backdropConfig)
                     } else {
                         parameter("Expand duration", value: $options.config.openDuration, range: 0.8...3, unit: "ms", multiplier: 1000)
                         parameter("Retract duration", value: $options.config.closeDuration, range: 0.8...3, unit: "ms", multiplier: 1000)
@@ -130,6 +141,9 @@ struct ProjectionDebugPanel: View {
             if controller.config != value { controller.config = value }
         }
         .onChange(of: options.config.edge) { _, _ in positionWindow() }
+        .onChange(of: options.backdropConfig) { _, value in
+            if controller.backdropConfig != value { controller.backdropConfig = value }
+        }
         .onChange(of: options.reduceMotion) { _, value in controller.setReduceMotion(value || systemReduceMotion) }
         .onChange(of: systemReduceMotion) { _, value in controller.setReduceMotion(value || options.reduceMotion) }
     }

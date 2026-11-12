@@ -22,6 +22,13 @@ private final class PlaygroundAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         // The shared preview bundle is an accessory; the standalone lab needs normal window activation.
         NSApplication.shared.setActivationPolicy(.regular)
+        if CommandLine.arguments.contains("--ui-preview-fixtures") {
+            if CommandLine.arguments.contains("--ui-preview-dark") {
+                NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+            } else if CommandLine.arguments.contains("--ui-preview-light") {
+                NSApplication.shared.appearance = NSAppearance(named: .aqua)
+            }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

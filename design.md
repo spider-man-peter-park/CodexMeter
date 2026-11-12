@@ -756,3 +756,128 @@ projection values match the pre-launch snapshot. Three-second CPU samples measur
 frame-rate or long-term idle certification. The earlier pre-launch-order sample is
 excluded. One verified preview instance remains open in projected mode for the
 user. Physical desktop interaction limits above still apply.
+
+## Full-display projection backdrop — 2026-11-12
+
+The user requested a hazy black translucent background across the display while
+using the independent Projection playground. This overrides the earlier no-blur
+direction for this desktop projection. A retained native behind-window visual
+effect uses dark HUD material and a 48% black tint. A separate nonactivating,
+mouse-transparent panel covers the selected display's full `NSScreen.frame`,
+including the menu bar and Dock area. The source, projection and narrow HUD input
+panels remain above it; other displays are unaffected.
+
+Backdrop opacity follows the existing source-activation sample, so interrupted
+expansion/retraction uses the same playhead. It is removed on full retraction,
+desktop disable, inspection takeover, application hide/sleep, mode exit and stop.
+The existing orb tuning, projection configuration and saved language are retained.
+Native visual-effect accessibility behavior remains system-controlled.
+
+Fixture-only `--ui-preview-light` and `--ui-preview-dark` arguments set this
+application's appearance for actual window checks without changing system settings
+or persistent preferences. Build logs and observed UI-check notes are recorded
+under `work/projection-backdrop-qa`; isolated layer captures are not evidence of
+full-desktop composition.
+
+The delegated Terra executor inspected actual Chinese/light and English/dark
+debug and HUD-inspection windows. Retraction, expansion, desktop enable/disable
+and mode switching were exercised through native controls. Round 2 exposed a
+`3.469446951953614e-18` retraction remainder, which could retain an invisible
+backdrop window. A regression test reproduced that exact residual; the timeline
+now canonicalizes completed endpoints to exactly 0 or 1. All 67 focused tests and
+the final standalone Release build passed after the correction.
+
+The final native-control retest confirmed slider values of exactly 0 with HUD
+hidden and exactly 1 with HUD visible. After stopping QA at zero preview processes,
+the same signed package was relaunched once in Chinese/system appearance with the
+projection expanded for user inspection. Its Mach-O UUID matches the final build.
+
+The available CUA screenshots are inline single-window images only. They cannot
+capture the desktop composite or select the mouse-transparent backdrop, so actual
+screen-wide opacity, stacking and physical click-through have no screenshot/manual
+pass claim. The frame, level, input and cleanup behavior are supported by the
+implementation; normal debug/HUD window readability has actual window observations.
+
+## Projection backdrop controls — 2026-11-12
+
+The independent playground now has a Backdrop tab beside Beam, HUD and Timing.
+Native controls provide an enable switch, overall opacity, black tint and native
+blur intensity, with labeled percentage readouts. Zero overall opacity orders the
+backdrop out; zero blur hides the native effect view. The default 100% overall
+opacity, 48% tint and full native blur retain the previously accepted appearance.
+A dedicated reset affects only backdrop settings, and changes preserve the current
+projection playhead.
+
+Backdrop configuration has its own saved key, `playgroundBackdropConfig`, so adding
+these controls does not change the existing beam/HUD decoding or accepted tuning.
+Only configuration changes update the retained background view; controls do not
+subscribe to the animation clock. English and Chinese labels use the existing
+native slider and segmented-picker conventions. The targeted UI/UX Pro Max slider
+search and SwiftUI retry did not return a verified match; this layout follows the
+project's native controls instead of an attributed database recommendation.
+
+Validation passed 70 focused tests and the standalone Release build. The delegated
+Terra executor inspected the actual Chinese/light and English/dark Backdrop pages:
+three sliders showed readable percentages, the switch disabled and re-enabled
+their controls, and native edits retained the fully expanded projection. A restart
+restored the tested 38% opacity, 62% tint and 29% blur. Backdrop defaults restored
+100%/48%/100% while the playhead remained at 100%; inspected beam/HUD settings
+matched their baseline. Two early automatic retractions were observed but were not
+reproduced by later edits, nearby clicks or paused edits; no configuration-reset
+defect was established. The observations are retained in the QA notes.
+
+Screenshots remain inline single-window images, with no saved/full-desktop capture
+claim. These checks verify native controls, state and persistence; they do not
+visually certify the desktop's composited blur/opacity or multi-display behavior.
+
+## Apply the playground projection to production — 2026-11-12
+
+The user explicitly requested the playground's projection and backdrop in the
+installed application. Production now links the shared ProjectionMotionKit beam,
+dashboard, backdrop and reversible timeline instead of maintaining a separate
+projection drawing path. A bundled ProjectionProfile.json captures the user's
+accepted values: 1.03/0.80-second open/close, 54% backdrop opacity, 53% black tint,
+full native blur, the existing cyan HUD layout and paused decorative motion.
+The snapshot is independent of the playground's writable preferences.
+
+Production keeps the mechanical source orb, saved position, edge snapping, context
+menu and visibility control. The centered dashboard is a nonactivating, read-only,
+mouse-transparent surface. A production text/data adapter maps existing assistant
+quota/local usage/TPS and already sampled hardware/network readings into the shared
+visual modules. The former prototype AI/activity/controls surfaces carry source
+metrics and response readings. Missing/stale values remain unavailable, and cached,
+paused and partial states keep their qualifiers. Fixture data is labeled in QA.
+The overlay does not initiate extra native hardware or account queries.
+
+The full-screen backdrop is below the orb/beam/dashboard and restricted to the orb's
+current display. The cropped dashboard window and pointer-retention geometry use
+the shared HUD layout, including negative display origins. Closing, hiding, sleep,
+mode teardown and full retraction release the backdrop and telemetry demand.
+Workspace/settings actions and independent menu bar popovers retain their behavior.
+
+Validation: the final complete serial suite reported 454 tests: 448 passed and six
+optional performance benchmarks were skipped. Production-adapter checks also passed
+after the final text correction. Release packaging, strict signature, profile/data
+equality, property-list validation and installed-resource probing with the SwiftPM
+scratch directory offline all passed.
+
+Round 1 inspected English/light source and dashboard panels. The mechanical orb's
+workspace/settings menu actions opened the unified window, and the read-only six
+modules exposed the expected Codex fixture readings. The fixture marker was outside
+the cropped dashboard; it was moved inside the crop and added to accessibility text.
+Round 2 inspected Chinese/dark DeepSeek Harness and an English Codex follow-up:
+the marker, source names, partial/cumulative qualifiers, tokens, TPS and hardware
+fields were readable without observed overlap. A repeated DeepSeek scope line was
+replaced with the cumulative supported-session qualifier. Tests/build passed after
+that correction. The final recheck initially encountered the Mac lock screen; after
+the user manually unlocked it, the same build 25 preview showed one token label
+followed by the cumulative supported-session qualifier. The installed production
+application's Overview window was also confirmed visible and running.
+
+The verified package was installed locally as 0.6.0 build 25 after preserving the
+previous app in a CRC/SHA-verified ZIP. Installed content and Mach-O UUID match the
+build and the restarted process resolves to /Applications/CodexMeter.app. Existing
+preferences and usage data were left in place. The fixed preview was stopped and
+checked at zero processes. Actual desktop composition, external-display hardware,
+physical click-through and VoiceOver remain verification limits. Evidence is under
+work/production-projection-qa.
